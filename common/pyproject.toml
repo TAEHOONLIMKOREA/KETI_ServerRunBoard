@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "runboard-common"
+version = "0.1.0"
+description = "RunBoard: shared report schema for agent and server"
+requires-python = ">=3.10"
+dependencies = ["pydantic>=2.5,<3"]
+
+[tool.setuptools.packages.find]
+include = ["runboard_common*"]
