@@ -1,0 +1,59 @@
+# RunBoard 서버 설정 예시. 복사해서 runboard.yaml 로 쓰고 RUNBOARD_CONFIG 로 가리키거나 --config 로 넘긴다.
+# MVP 동안은 관리 페이지(v0.3) 대신 이 파일로 노드 토큰·사용자·매핑을 관리한다 (docs/IMPLEMENTATION.md 1장).
+
+server:
+  db_url: sqlite:///data/runboard.db   # PostgreSQL 로 바꾸려면 URL 만 변경
+  persist_interval_s: 30               # 샘플을 DB 에 쓰는 간격. 에이전트 보고는 5초지만 저장은 30초
+  web_dist: web/dist                   # 빌드된 프론트. 없으면 API 만 제공
+  host: 0.0.0.0
+  port: 8000
+
+auth:
+  node_tokens:
+    # 노드 이름 → 토큰. 평문 또는 'sha256:<hex>' (echo -n TOKEN | sha256sum)
+    fake01: dev-token-fake01
+    gpu01: sha256:9b0c2a7e3f0b0d4c0e5d9d9f1f1a3f6c5b1a0e2d7c8b9a0f1e2d3c4b5a697887
+  shared_token: null                   # 모든 노드에 허용되는 토큰. 개발용으로만
+
+thresholds:
+  delayed_s: 15                        # 마지막 수신이 이보다 오래되면 '지연'
+  offline_s: 30                        # 이보다 오래되면 '끊김'. 그 노드의 작업은 '미확인'
+  offline_close_after_s: 86400         # 끊긴 채 이 시간이 지나면 미확인 세션을 종료
+  activity_window_s: 60                # 활동 판정 창
+  activity_low_pct: 10                 # 창 안 평균 사용률이 이보다 낮으면 '낮은 활동'
+  temp_warn_c: 85
+  session_miss_reports: 2              # 연속 N회 보고에서 빠지면 세션 종료
+  occupied_mem_pct: 70                 # 요약 색 빨강 기준
+  busy_util_pct: 90
+  clock_skew_max_s: 60                 # 측정·수신 시각 차이가 이보다 크면 수신 시각 사용
+
+owner:
+  container_name_rule: "^(?P<user>[A-Za-z][A-Za-z0-9]*)[_-]"   # <user>_<용도> 규칙. user 가 등록 사용자일 때만
+  label_owner: runboard.owner
+  label_project: runboard.project
+  label_job: runboard.job
+
+users:
+  - username: taehoon
+    display_name: 임태훈
+    aliases: [th]                      # 호스트 계정명이 다르면 여기에
+  - username: minsu
+    display_name: 김민수
+  - username: jihye
+
+account_mappings:
+  # (노드, uid) → 사용자. node 를 생략하면 모든 노드. 실행 계정명이 등록 사용자와 같으면 매핑 없이도 인식된다.
+  - uid: 1001
+    user: taehoon
+
+services:
+  # 공용 서비스 레지스트리. 매칭되면 유형 shared_service, 소유자는 담당자(owner)
+  - name: ollama
+    match_exec_account: ollama
+    owner: taehoon
+    idle_exempt: true
+  - name: vllm
+    match_container_pattern: "^vllm"
+    match_image_pattern: "vllm/vllm-openai"
+    owner: null
+    idle_exempt: true
