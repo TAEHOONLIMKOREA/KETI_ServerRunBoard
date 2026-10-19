@@ -1,0 +1,22 @@
+[Unit]
+Description=RunBoard GPU agent
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# install-agent.sh 가 만드는 전용 계정. Docker 가 있으면 docker 그룹에 넣어 컨테이너 조회만 허용한다.
+User=runboard
+Group=runboard
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/runboard/venv/bin/runboard-agent run --config /etc/runboard/agent.toml
+Restart=always
+RestartSec=5
+# 호스트 PID 네임스페이스에서 돌아야 NVML 의 PID 가 /proc 과 맞는다 (PLAN 4.2)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
