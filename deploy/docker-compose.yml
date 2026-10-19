@@ -1,0 +1,34 @@
+# 중앙 서버 배포.  deploy/ 에서:
+#   cp runboard.example.yaml runboard.yaml   # 토큰·사용자·서비스 수정
+#   docker compose up -d --build
+# 내부망에서 HTTP 로만 쓰려면 caddy 를 지우고 server 에 ports: ["8000:8000"] 를 연다.
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: runboard-server:local
+    restart: unless-stopped
+    volumes:
+      - ./runboard.yaml:/config/runboard.yaml:ro
+      - runboard-data:/data
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - server
+
+volumes:
+  runboard-data: {}
+  caddy-data: {}
+  caddy-config: {}
