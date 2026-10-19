@@ -1,0 +1,5 @@
+# 개발용 설치: .venv/Scripts/pip install -r requirements-dev.txt
+# 세 패키지를 editable 로 설치한다. common 이 먼저여야 한다.
+-e ./common
+-e ./agent[dev]
+-e ./server[dev]

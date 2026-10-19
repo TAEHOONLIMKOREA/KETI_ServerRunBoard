@@ -1,0 +1,20 @@
+# 루트는 패키지가 아니다. 도구 설정만 둔다.
+# 패키지: common/ (runboard-common), agent/ (runboard-agent), server/ (runboard-server)
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".venv", "web", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# RUF001-003: 한국어 주석의 유니코드 문장부호 허용
+# E501: 코드 줄 길이는 포매터가 관리한다. 한글은 폭 2 로 계산되어 주석·문자열이 자주 걸린다
+ignore = ["RUF001", "RUF002", "RUF003", "E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["runboard_common", "runboard_agent", "runboard_server"]
+
+[tool.pytest.ini_options]
+testpaths = ["common/tests", "agent/tests", "server/tests"]
+addopts = "--import-mode=importlib -q"

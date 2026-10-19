@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# RunBoard 런타임 데이터 (SQLite 등)
+data/
