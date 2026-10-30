@@ -124,6 +124,9 @@ class SessionTracker:
         self._sessions_by_wl: dict[str, set[SessionKey]] = defaultdict(set)
         self._open_by_node: dict[str, set[SessionKey]] = defaultdict(set)
         self._node_boot: dict[str, str] = {}
+        # 상태가 바뀐 것(생성·종료·미확인·복귀). take_dirty(transitions_only=True) 가 이것만 쓴다
+        self._transitions: set[SessionKey] = set()
+        self._wl_transitions: set[str] = set()
 
     # ------------------------------------------------------------------ 조회
 
@@ -189,6 +192,7 @@ class SessionTracker:
                     self.sessions[key] = session
                     self._sessions_by_wl[workload.id].add(key)
                     self._open_by_node[node].add(key)
+                    self._transitions.add(key)
                     self._touch(session, proc, ts, first=True)
                 else:
                     self._touch(session, proc, ts)
@@ -214,6 +218,7 @@ class SessionTracker:
                 session.status = "unknown"
                 session.unknown_since = session.last_seen_ts
                 session.dirty = True
+                self._transitions.add(key)
         self._refresh_workloads(node)
 
     def close_offline_timeouts(self, node: str, now: float) -> int:
@@ -234,10 +239,20 @@ class SessionTracker:
 
     # ------------------------------------------------------------------ 영속화 보조
 
-    def take_dirty(self) -> tuple[list[Workload], list[Session]]:
-        """바뀐 작업·세션을 돌려주고 플래그를 내린다. 끝난 세션·작업은 메모리에서 뺀다."""
-        workloads = [w for w in self.workloads.values() if w.dirty]
-        sessions = [s for s in self.sessions.values() if s.dirty]
+    def take_dirty(self, transitions_only: bool = False) -> tuple[list[Workload], list[Session]]:
+        """바뀐 작업·세션을 돌려주고 플래그를 내린다. 끝난 세션·작업은 메모리에서 뺀다.
+
+        transitions_only 면 상태가 바뀐 것(생성·종료·미확인·복귀, 작업 상태 변화)만 돌려준다. 누적값만
+        바뀐 것은 dirty 로 남겨 두었다가 다음 전체 호출 때 쓴다. 보고가 1초마다 올 때 DB 쓰기를 줄이기 위해서다.
+        """
+        if transitions_only:
+            workloads = [self.workloads[i] for i in self._wl_transitions if i in self.workloads]
+            sessions = [self.sessions[k] for k in self._transitions if k in self.sessions]
+        else:
+            workloads = [w for w in self.workloads.values() if w.dirty]
+            sessions = [s for s in self.sessions.values() if s.dirty]
+        self._wl_transitions.clear()
+        self._transitions.clear()
         for w in workloads:
             w.dirty = False
         for s in sessions:
@@ -265,6 +280,7 @@ class SessionTracker:
                 s.status = "unknown"
                 s.unknown_since = s.last_seen_ts
             s.dirty = True
+            self._transitions.add(s.key)
             self.sessions[s.key] = s
             self._sessions_by_wl[s.workload_id].add(s.key)
             self._open_by_node[s.node].add(s.key)
@@ -284,6 +300,7 @@ class SessionTracker:
                 workload.owner = decision.owner
                 workload.owner_source = decision.source
                 workload.dirty = True
+                self._wl_transitions.add(workload.id)
             return workload
         container = proc.container
         workload = Workload(
@@ -305,6 +322,7 @@ class SessionTracker:
         )
         self.workloads[workload.id] = workload
         self._wl_by_key[key] = workload
+        self._wl_transitions.add(workload.id)
         return workload
 
     def _touch(self, session: Session, proc: ProcessReport, ts: float, first: bool = False) -> None:
@@ -314,6 +332,7 @@ class SessionTracker:
                 session.unknown_seconds += max(0.0, ts - gap_start)
                 session.unknown_since = None
                 session.status = "active"
+                self._transitions.add(session.key)
             else:
                 dt = min(self.max_dt_s, max(0.0, ts - session.last_seen_ts))
                 if proc.mem_used_mb is not None:
@@ -335,6 +354,7 @@ class SessionTracker:
         session.end_ts = session.last_seen_ts
         session.unknown_since = None
         session.dirty = True
+        self._transitions.add(session.key)
         self._open_by_node[session.node].discard(session.key)
 
     def _end_all(self, node: str, reason: EndedReason) -> None:
@@ -359,6 +379,8 @@ class SessionTracker:
             else:
                 new_status = "ended"
             last_seen = max((s.last_seen_ts for s in sessions), default=workload.last_seen)
+            if new_status != workload.status:
+                self._wl_transitions.add(workload.id)
             if new_status != workload.status or last_seen != workload.last_seen:
                 workload.status = new_status
                 workload.last_seen = last_seen

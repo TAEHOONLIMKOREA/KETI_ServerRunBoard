@@ -110,11 +110,19 @@ class Engine:
                 self.repo.save(workloads, sessions)
 
     def _persist(self, node: NodeState, ts: float, received: float) -> None:
-        workloads, sessions = self.tracker.take_dirty()
+        """보고마다 호출된다. 샘플·노드 행과 누적값은 persist_interval 마다, 상태 전이는 바로 쓴다.
+
+        보고가 1초마다 오므로 전부 매번 쓰면 DB 쓰기가 수십 배가 된다. 전이(생성·종료·미확인·복귀)만
+        바로 쓰고, GB·시간 같은 누적값은 tick(10초)과 샘플 저장 때 모아서 쓴다.
+        """
+        due = (
+            node.last_sample_persist_ts == 0.0
+            or ts - node.last_sample_persist_ts >= self.cfg.server.persist_interval_s
+        )
+        workloads, sessions = self.tracker.take_dirty(transitions_only=not due)
         if self.repo is None:
             return
-        due = ts - node.last_sample_persist_ts >= self.cfg.server.persist_interval_s
-        if node.last_sample_persist_ts == 0.0 or due:
+        if due:
             self.repo.upsert_node(node)
             self.repo.insert_samples(node, ts, received)
             node.last_sample_persist_ts = ts

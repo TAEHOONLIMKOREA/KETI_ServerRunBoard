@@ -153,3 +153,20 @@ def test_restore_marks_unknown_and_next_report_reconciles(tracker, config, fake_
     assert {s.id for s in fresh.open_sessions()} == {s.id for s in sessions}, (
         "같은 세션으로 이어진다"
     )
+
+
+def test_take_dirty_transitions_only(tracker):
+    tracker.apply(BASE + 5)
+    workloads, sessions = tracker.take_dirty(transitions_only=True)
+    assert len(workloads) == 6 and len(sessions) == 8, "새로 생긴 것은 전이다"
+    tracker.apply(BASE + 6)
+    assert tracker.take_dirty(transitions_only=True) == ([], []), "누적값만 바뀐 것은 모아서 쓴다"
+    workloads, sessions = tracker.take_dirty()
+    assert len(workloads) == 6 and len(sessions) == 8, "전체 호출에서는 누적값도 쓴다"
+
+    tracker.apply(BASE + CHURN_ALIVE_S + 5)
+    tracker.apply(BASE + CHURN_ALIVE_S + 6)
+    workloads, sessions = tracker.take_dirty(transitions_only=True)
+    assert [s.status for s in sessions] == ["ended"]
+    assert [w.status for w in workloads] == ["ended"]
+    assert sessions[0].key not in tracker.sessions, "끝난 것은 메모리에서 빠진다"
