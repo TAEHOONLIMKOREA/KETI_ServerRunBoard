@@ -27,7 +27,10 @@ class AuthSection(BaseModel):
     node_tokens: dict[str, str] = Field(
         default_factory=dict, description="노드 이름 → 토큰. 평문 또는 'sha256:<hex>'"
     )
-    shared_token: str | None = Field(default=None, description="모든 노드에 허용. 개발용")
+    shared_token: str | None = Field(
+        default=None,
+        description="등록 토큰. 이 토큰으로 보고하는 노드는 이름을 미리 등록하지 않아도 참여한다 (재시작 불필요)",
+    )
 
 
 class Thresholds(BaseModel):

@@ -19,7 +19,7 @@ def post_report(
 ) -> Response:
     cfg = request.app.state.config
     token = bearer_token(authorization)
-    if not verify_node_token(cfg.auth, report.node.name, token):
+    if not verify_node_token(cfg.auth, report.node.name, token, report.node.node_id):
         log.warning("인증 실패: node=%s", report.node.name)
         raise HTTPException(status_code=401, detail="invalid node token")
     request.app.state.engine.ingest(report)
