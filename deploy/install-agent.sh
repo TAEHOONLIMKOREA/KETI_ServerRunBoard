@@ -4,7 +4,7 @@
 #   sudo bash deploy/install-agent.sh --server https://runboard.internal --token <NODE_TOKEN> [--node gpu01]
 #
 # 하는 일: 전용 계정 runboard 생성 → /opt/runboard/venv 에 에이전트 설치 → /etc/runboard/agent.toml 작성
-#          → systemd 유닛 등록·시작. 5초 뒤 대시보드에 노드가 나타난다.
+#          → systemd 유닛 등록·시작. 몇 초 뒤 대시보드에 노드가 나타난다.
 # 옵션:   --source <레포 경로>  (기본: 이 스크립트가 있는 레포)   --prefix /opt/runboard   --python python3
 set -euo pipefail
 
@@ -75,7 +75,9 @@ else
 server_url = "$SERVER"
 token = "$TOKEN"
 node_name = "$NODE"
-interval = 5.0
+active_interval = 1.0   # GPU 동작 중(프로세스가 있거나 사용률 > 0) 보고 주기. 수집 주기이기도 하다
+idle_interval = 30.0    # GPU 유휴 시 보고 주기
+idle_grace = 5.0        # 동작이 멈춘 뒤 빠른 주기를 유지하는 시간
 timeout = 5.0
 collector = "nvml"
 EOF

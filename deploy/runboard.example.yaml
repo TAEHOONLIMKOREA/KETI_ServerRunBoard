@@ -3,7 +3,7 @@
 
 server:
   db_url: sqlite:///data/runboard.db   # PostgreSQL 로 바꾸려면 URL 만 변경
-  persist_interval_s: 30               # 샘플을 DB 에 쓰는 간격. 에이전트 보고는 5초지만 저장은 30초
+  persist_interval_s: 30               # 샘플을 DB 에 쓰는 간격. 에이전트 보고는 동작 중 1초·유휴 30초지만 저장은 30초
   web_dist: web/dist                   # 빌드된 프론트. 없으면 API 만 제공
   host: 0.0.0.0
   port: 8000
@@ -18,8 +18,8 @@ auth:
   shared_token: null                   # 모든 노드에 허용되는 토큰. 개발용으로만
 
 thresholds:
-  delayed_s: 15                        # 마지막 수신이 이보다 오래되면 '지연'
-  offline_s: 30                        # 이보다 오래되면 '끊김'. 그 노드의 작업은 '미확인'
+  delayed_s: 15                        # 보고 주기(에이전트가 보고에 적음)를 넘기고 이만큼 더 지나면 '지연'. 동작 중 노드 16초, 유휴 노드 45초
+  offline_s: 30                        # 보고 주기를 넘기고 이만큼 더 지나면 '끊김'. 그 노드의 작업은 '미확인'
   offline_close_after_s: 86400         # 끊긴 채 이 시간이 지나면 미확인 세션을 종료
   activity_window_s: 60                # 활동 판정 창
   activity_low_pct: 10                 # 창 안 평균 사용률이 이보다 낮으면 '낮은 활동'

@@ -10,7 +10,7 @@ GPU 서버 사용 현황 모니터링. 여러 노드의 GPU 를 한 화면에서
 | 디렉터리 | 패키지 | 역할 |
 |---|---|---|
 | `common/` | `runboard-common` | 에이전트·서버가 공유하는 보고 스키마 (pydantic) |
-| `agent/` | `runboard-agent` | 각 GPU 노드에서 실행. NVML 수집 + 계정·컨테이너 보강 → 5초마다 서버로 보고 |
+| `agent/` | `runboard-agent` | 각 GPU 노드에서 실행. NVML 수집 + 계정·컨테이너 보강 → GPU 동작 중 1초, 유휴 30초마다 서버로 보고 |
 | `server/` | `runboard-server` | FastAPI. 보고 수신, 유형·소유자 판정, 작업·세션 추적, SQLite 저장, API, 웹 UI 서빙 |
 | `web/` | | React + Vite + TypeScript 대시보드 |
 | `deploy/` | | 서버 설정 예시, compose, Caddyfile, 에이전트 설치 스크립트 |
@@ -77,7 +77,9 @@ sudo bash deploy/install-agent.sh --server https://runboard.internal --token <NO
 journalctl -u runboard-agent -f
 ```
 
-스크립트는 전용 계정 `runboard` 를 만들고 `/opt/runboard/venv` 에 설치한 뒤 systemd 서비스로 등록한다. Docker 가 있으면 `docker` 그룹에 넣어 컨테이너 이름·라벨 조회만 한다. 5초 뒤 대시보드에 노드가 나타난다.
+스크립트는 전용 계정 `runboard` 를 만들고 `/opt/runboard/venv` 에 설치한 뒤 systemd 서비스로 등록한다. Docker 가 있으면 `docker` 그룹에 넣어 컨테이너 이름·라벨 조회만 한다. 몇 초 뒤 대시보드에 노드가 나타난다.
+
+보고 주기는 적응형이다. GPU 에 프로세스가 있거나 사용률이 0 보다 크면 1초마다, 모두 놀고 있으면 30초마다 보고한다. 수집은 늘 1초마다 하므로 유휴 노드에서 작업이 시작돼도 바로 나타난다. `/etc/runboard/agent.toml` 의 `active_interval`, `idle_interval`, `idle_grace` 로 바꾼다. 서버는 보고에 실려 온 주기에 `delayed_s`·`offline_s` 를 더해 지연·끊김을 판정하므로 유휴 노드가 끊김으로 오판되지 않는다.
 
 Docker 로 돌리려면 `agent/Dockerfile` 머리말의 `docker run` 예시를 쓴다. `--pid=host` 가 없으면 다른 컨테이너의 프로세스가 보이지 않는다.
 

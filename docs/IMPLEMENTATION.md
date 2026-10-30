@@ -100,7 +100,7 @@ sqlite3 data/runboard.db "select type, name, owner_username, status from workloa
 확인:
 ```
 cd web && npm run build
-http://localhost:8000  →  노드 카드, GPU 행, 소유자·뱃지, 5초 갱신
+http://localhost:8000  →  노드 카드, GPU 행, 소유자·뱃지, 1초 갱신
 ```
 
 ### 6단계. 연결 상태·미확인 전이·사용자 뷰
@@ -131,7 +131,7 @@ Linux 노드: 개인 계정 작업, 컨테이너 작업, ollama 각각 올바른
 - `deploy/install-agent.sh`, `agent/systemd/runboard-agent.service`, `deploy/docker-compose.yml`, `server/Dockerfile`, `deploy/Caddyfile`
 - README에 서버 띄우기·노드 추가 절차
 
-확인: 문서대로 새 노드를 등록하면 5초 뒤 대시보드에 나타난다.
+확인: 문서대로 새 노드를 등록하면 몇 초 뒤 대시보드에 나타난다.
 
 ## 4. 진행 상태
 
@@ -166,3 +166,10 @@ python3 -m venv /tmp/rb && /tmp/rb/bin/pip install ./common ./agent
 - 소유자 판정 4번 규칙에 "실행 계정명이 등록 사용자·별칭과 같으면 인식" 을 추가했다. uid 매핑 없이도 호스트 계정 작업이 식별된다
 - 빈 GPU 와 끊긴 노드에는 활동 뱃지(낮은 활동·수집 불가)를 붙이지 않는다
 - 샘플 persist 는 노드별로 `persist_interval_s` 마다, 노드·GPU 행도 그때 갱신한다
+
+### MVP 이후 바뀐 것 (2026-10-30)
+
+- 보고 주기를 고정 5초에서 적응형으로 바꿨다 (`agent/runboard_agent/cadence.py`). GPU 에 프로세스가 있거나 사용률이 0 보다 크면 `active_interval`(1초), 모두 놀면 `idle_interval`(30초). 수집은 항상 1초마다 해서 유휴 노드에서 작업이 시작되면 바로 보고한다. 동작이 멈춘 뒤 `idle_grace`(5초) 동안은 1초 주기를 유지해, 서버가 2회 연속 누락으로 세션을 닫는 데 1~2초면 되게 했다
+- 보고의 `node.report_interval_s` 에 다음 보고까지의 최대 간격을 적는다. 서버의 지연·끊김 판정은 `보고 주기 + delayed_s / offline_s` 다 (동작 중 노드 16초·31초, 유휴 노드 45초·60초). 값이 없는 옛 에이전트는 0 으로 본다
+- 1초 보고로 DB 쓰기가 늘지 않도록, 세션·작업은 상태 전이(생성·종료·미확인·복귀) 때만 바로 저장하고 누적값(GB·시간, 사용률)은 tick(10초)과 샘플 저장(30초) 때 모아서 쓴다
+- 웹 폴링은 1초 (`web/src/api.ts` 의 REFRESH_MS)
