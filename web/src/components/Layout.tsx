@@ -1,53 +1,35 @@
-import { useEffect, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Link, Outlet, useNavigate, useSearchParams } from "react-router-dom";
+import { useOverview } from "../api";
 
-type Theme = "auto" | "light" | "dark";
-
-function readTheme(): Theme {
-  try {
-    const v = localStorage.getItem("runboard.theme");
-    if (v === "light" || v === "dark") return v;
-  } catch {
-    /* 저장소를 못 쓰는 환경 */
-  }
-  return "auto";
-}
-
-function applyTheme(theme: Theme) {
-  const root = document.documentElement;
-  if (theme === "auto") delete root.dataset.theme;
-  else root.dataset.theme = theme;
-  try {
-    if (theme === "auto") localStorage.removeItem("runboard.theme");
-    else localStorage.setItem("runboard.theme", theme);
-  } catch {
-    /* 무시 */
-  }
-}
-
-const NEXT: Record<Theme, Theme> = { auto: "dark", dark: "light", light: "auto" };
-const LABEL: Record<Theme, string> = { auto: "테마: 자동", dark: "테마: 다크", light: "테마: 라이트" };
-
+/** 상단 헤더 한 줄: 제목, 검색창, 연결된 노드 수. 검색어는 URL ?q= 로 대시보드에 전달한다. */
 export default function Layout() {
-  const [theme, setTheme] = useState<Theme>(readTheme);
-  useEffect(() => applyTheme(theme), [theme]);
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const { data } = useOverview();
+  const q = params.get("q") ?? "";
+  const connected = data ? data.summary.nodes - data.summary.nodes_offline : null;
+
+  function onSearch(value: string) {
+    const search = value.trim() ? `?q=${encodeURIComponent(value)}` : "";
+    navigate({ pathname: "/", search }, { replace: true });
+  }
 
   return (
     <div className="container">
       <header className="topbar">
-        <NavLink to="/" className="brand">
-          RunBoard
-        </NavLink>
-        <nav className="nav">
-          <NavLink to="/" end>
-            대시보드
-          </NavLink>
-          <NavLink to="/users">사용자</NavLink>
-        </nav>
-        <span className="spacer" />
-        <button className="btn" onClick={() => setTheme(NEXT[theme])} title="테마 전환">
-          {LABEL[theme]}
-        </button>
+        <Link to="/" className="brand">
+          KETI Server RunBoard
+        </Link>
+        <input
+          className="search"
+          placeholder="노드, 사용자, 작업, 컨테이너 검색"
+          value={q}
+          onChange={(e) => onSearch(e.target.value)}
+        />
+        <span className="nodecount" title="정상·지연 노드 / 알려진 노드 전체">
+          연결된 노드 <b>{connected ?? "—"}</b>
+          {data && <span className="muted"> / {data.summary.nodes}</span>}
+        </span>
       </header>
       <Outlet />
     </div>

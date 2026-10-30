@@ -1,7 +1,7 @@
 import { useParams } from "react-router-dom";
 import { useNode, useWorkloads } from "../api";
 import { Badges } from "../components/Badges";
-import { ConnDot } from "../components/NodeCard";
+import { ConnDot, INACTIVE_TEXT } from "../components/NodeCard";
 import { ErrorBox, Loading } from "../components/Status";
 import { WorkloadTable } from "../components/Tables";
 import { fmtAgo, fmtGb, fmtMemPair, fmtPct } from "../format";
@@ -29,6 +29,7 @@ export default function NodeDetail() {
         </span>
         <span className="muted">마지막 보고 {fmtAgo(n.age_s)}</span>
       </div>
+      {n.conn_status === "offline" && <div className="inactive">{INACTIVE_TEXT}</div>}
 
       <section className="card">
         <div className="kv">

@@ -51,7 +51,7 @@ export const typeLabel: Record<WorkloadType, string> = {
 export const connLabel: Record<ConnStatus, string> = {
   online: "정상",
   delayed: "지연",
-  offline: "끊김",
+  offline: "비활성화",
 };
 
 export const sourceLabel: Record<string, string> = {

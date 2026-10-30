@@ -39,7 +39,6 @@ export function WorkloadLine({ w }: { w: WorkloadOnGpu }) {
         {span}
       </Link>
       <span className="elapsed">{fmtElapsed(w.elapsed_s)}</span>
-      {w.status === "unknown" && <Badge text="미확인" />}
     </div>
   );
 }

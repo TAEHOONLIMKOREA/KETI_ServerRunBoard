@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useOverview } from "../api";
 import { legendEntries } from "../colors";
 import { NodeCard } from "../components/NodeCard";
@@ -28,8 +29,8 @@ function matchSearch(node: Node, g: Gpu, q: string): boolean {
 
 export default function Dashboard() {
   const { data, error, isLoading } = useOverview();
-  const [search, setSearch] = useState("");
-  const q = search.trim().toLowerCase();
+  const [params] = useSearchParams();
+  const q = (params.get("q") ?? "").trim().toLowerCase();
 
   const cards = useMemo(() => {
     if (!data) return [];
@@ -42,45 +43,9 @@ export default function Dashboard() {
   if (isLoading) return <Loading />;
   if (error) return <ErrorBox error={error} />;
   if (!data) return null;
-  const s = data.summary;
 
   return (
     <>
-      <div className="controls">
-        <input
-          className="search"
-          placeholder="노드, 사용자, 작업, 컨테이너 검색"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
-      <div className="summary">
-        <div className={`stat ${s.nodes_offline ? "warn" : ""}`}>
-          <b>
-            {s.nodes}
-            {s.nodes_offline > 0 && <small> (끊김 {s.nodes_offline})</small>}
-          </b>
-          <span>노드</span>
-        </div>
-        <div className="stat">
-          <b>{s.gpus}</b>
-          <span>GPU</span>
-        </div>
-        <div className="stat">
-          <b>{s.gpus_free}</b>
-          <span>빈 GPU</span>
-        </div>
-        <div className="stat">
-          <b>{s.workloads}</b>
-          <span>작업</span>
-        </div>
-        <div className={`stat ${s.gpus_unknown_owner ? "warn" : ""}`}>
-          <b>{s.gpus_unknown_owner}</b>
-          <span>소유자 미확인 GPU</span>
-        </div>
-      </div>
-
       {data.nodes.length > 0 && (
         <div className="legend" aria-label="행 색 범례">
           {legend.map((e) => (
