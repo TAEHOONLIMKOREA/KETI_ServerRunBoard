@@ -221,3 +221,6 @@ __marimo__/
 
 # RunBoard 런타임 데이터 (SQLite 등)
 data/
+
+# Office 가 문서를 열어 둘 때 만드는 잠금 파일 (~$이름.pptx 등)
+~$*
