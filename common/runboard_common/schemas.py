@@ -61,6 +61,12 @@ class GpuReport(BaseModel):
 
 class NodeInfo(BaseModel):
     name: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    node_id: str | None = Field(
+        default=None,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+        description="재부팅·재설치 뒤에도 같은 노드임을 알리는 고정 식별자 (설치 때 만든 UUID 등). 없으면 name 이 식별자",
+    )
     ip: str | None = None
     boot_id: str = Field(min_length=1, description="재부팅마다 바뀌는 식별자")
     driver_version: str | None = None
