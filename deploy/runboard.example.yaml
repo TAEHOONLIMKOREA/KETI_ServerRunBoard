@@ -12,6 +12,8 @@ auth:
   node_tokens:
     # 노드 이름 → 토큰. 평문 또는 'sha256:<hex>' (echo -n TOKEN | sha256sum)
     fake01: dev-token-fake01
+    fake02: dev-token-fake02             # fake 노드를 여러 개 띄울 때. 이름 끝 숫자가 다르면 UUID·IP·주기가 달라진다
+    fake03: dev-token-fake03
     gpu01: sha256:9b0c2a7e3f0b0d4c0e5d9d9f1f1a3f6c5b1a0e2d7c8b9a0f1e2d3c4b5a697887
   shared_token: null                   # 모든 노드에 허용되는 토큰. 개발용으로만
 

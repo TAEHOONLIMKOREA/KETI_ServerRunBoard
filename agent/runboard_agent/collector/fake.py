@@ -13,11 +13,16 @@
 | 7 | 빈 GPU | free |
 
 gpu_count 가 8 보다 작으면 앞에서부터 그만큼만 만든다.
+
+노드를 여러 개 띄우려면 node_name 만 다르게 하면 된다. GPU UUID·부팅 ID·IP 는 노드 이름에서
+결정적으로 만들어 서로 겹치지 않고, 이름 끝 숫자(fake01, fake02, ...)에 따라 churn 주기와
+사용률 파형이 어긋나게 돌아간다. fake01 은 오프셋 0 이라 단일 노드일 때와 같다.
 """
 
 from __future__ import annotations
 
 import math
+import re
 import time
 import uuid
 
@@ -44,6 +49,33 @@ def stable_boot_id(node_name: str) -> str:
     return str(uuid.uuid5(_NAMESPACE, f"runboard-fake:{node_name}"))
 
 
+def _node_number(node_name: str) -> int | None:
+    """이름 끝의 숫자. fake01 → 1, gpu-node-12 → 12, 없으면 None."""
+    m = re.search(r"(\d+)$", node_name)
+    return int(m.group(1)) if m else None
+
+
+def fake_gpu_uuid(node_name: str, index: int) -> str:
+    """노드마다 다른, 재시작해도 같은 GPU UUID. 서버 DB 는 UUID 를 기본 키로 쓴다."""
+    return f"GPU-{uuid.uuid5(_NAMESPACE, f'runboard-fake-gpu:{node_name}:{index}')}"
+
+
+def fake_ip(node_name: str) -> str:
+    """노드마다 다른 IP. fake01 → 10.0.0.11, fake02 → 10.0.0.12, 숫자가 없으면 이름 해시."""
+    n = _node_number(node_name)
+    if n is None:
+        n = int(uuid.uuid5(_NAMESPACE, f"runboard-fake-ip:{node_name}").int % 200) + 1
+    return f"10.0.0.{10 + (n % 240)}"
+
+
+def node_offset_s(node_name: str) -> int:
+    """노드마다 churn 주기와 사용률 파형을 어긋나게 하는 시간 오프셋(초). fake01 은 0."""
+    n = _node_number(node_name)
+    if n is None:
+        n = int(uuid.uuid5(_NAMESPACE, f"runboard-fake-offset:{node_name}").int % 97) + 1
+    return ((n - 1) * 30) % CHURN_PERIOD_S
+
+
 def _wave(now: float, base: int, amp: int, period: float, phase: float = 0.0) -> int:
     value = base + amp * math.sin(2 * math.pi * now / period + phase)
     return max(0, min(100, round(value)))
@@ -62,6 +94,7 @@ class FakeCollector:
         self.gpu_count = max(0, min(8, gpu_count))
         self.churn = churn
         self.boot_id = boot_id or stable_boot_id(node_name)
+        self._offset_s = node_offset_s(node_name)
         self._clock = clock
 
     def close(self) -> None:
@@ -76,13 +109,13 @@ class FakeCollector:
         return NodeReport(
             node=NodeInfo(
                 name=self.node_name,
-                ip="10.0.0.11",
+                ip=fake_ip(self.node_name),
                 boot_id=self.boot_id,
                 driver_version="550.54.15",
                 cuda_version="12.4",
                 agent_version=__version__,
                 measured_ts=now,
-                cpu_percent=float(_wave(now, 20, 10, 120)),
+                cpu_percent=float(self._w(now, 20, 10, 120)),
                 mem_used_mb=51200,
                 mem_total_mb=262144,
             ),
@@ -103,14 +136,14 @@ class FakeCollector:
         }
         return builders[index](index, now)
 
-    @staticmethod
-    def _uuid(index: int) -> str:
-        return f"GPU-fake-{index:02d}-0000-0000-000000000000"
+    def _w(self, now: float, base: int, amp: int, period: float, phase: float = 0.0) -> int:
+        """노드 오프셋을 더한 파형. 여러 노드가 같은 시각에 같은 값을 보이지 않게 한다."""
+        return _wave(now + self._offset_s, base, amp, period, phase)
 
     def _base(self, index: int, mem_used: int, util: int | None, temp: int) -> GpuReport:
         return GpuReport(
             index=index,
-            uuid=self._uuid(index),
+            uuid=fake_gpu_uuid(self.node_name, index),
             name=_GPU_NAME,
             mem_total_mb=_MEM_TOTAL,
             mem_used_mb=mem_used,
@@ -122,7 +155,7 @@ class FakeCollector:
         )
 
     def _ddp_gpu(self, index: int, now: float) -> GpuReport:
-        util = _wave(now, 85, 10, 40, phase=index)
+        util = self._w(now, 85, 10, 40, phase=index)
         gpu = self._base(index, 65_000, util, 68)
         gpu.processes.append(
             ProcessReport(
@@ -168,7 +201,7 @@ class FakeCollector:
         return gpu
 
     def _ollama_gpu(self, index: int, now: float) -> GpuReport:
-        util = _wave(now, 4, 4, 25)
+        util = self._w(now, 4, 4, 25)
         gpu = self._base(index, 36_800, util, 41)
         gpu.processes.append(
             ProcessReport(
@@ -187,11 +220,13 @@ class FakeCollector:
         return gpu
 
     def _churn_gpu(self, index: int, now: float) -> GpuReport:
-        cycle = int(now // CHURN_PERIOD_S)
-        alive = self.churn and (now % CHURN_PERIOD_S) < CHURN_ALIVE_S
+        # 노드 오프셋만큼 어긋난 시계로 주기를 센다. 시작 시각은 실제 시계로 되돌려 미래가 되지 않게 한다
+        t = now + self._offset_s
+        cycle = int(t // CHURN_PERIOD_S)
+        alive = self.churn and (t % CHURN_PERIOD_S) < CHURN_ALIVE_S
         if not alive:
             return self._base(index, 300, 0, 35)
-        util = _wave(now, 60, 20, 15)
+        util = self._w(now, 60, 20, 15)
         gpu = self._base(index, 12_000, util, 55)
         gpu.processes.append(
             ProcessReport(
@@ -203,14 +238,14 @@ class FakeCollector:
                 exec_username="taehoon",
                 exec_uid=1001,
                 cmdline="python eval.py --ckpt runs/best.pt",
-                proc_start_ts=float(cycle * CHURN_PERIOD_S),
+                proc_start_ts=float(cycle * CHURN_PERIOD_S - self._offset_s),
                 container=None,
             )
         )
         return gpu
 
     def _jihye_gpu(self, index: int, now: float) -> GpuReport:
-        util = _wave(now, 95, 4, 20)
+        util = self._w(now, 95, 4, 20)
         gpu = self._base(index, 79_000, util, 74)
         common = dict(
             exec_username="jihye",
@@ -243,7 +278,7 @@ class FakeCollector:
         return gpu
 
     def _unknown_container_gpu(self, index: int, now: float) -> GpuReport:
-        util = _wave(now, 40, 30, 50)
+        util = self._w(now, 40, 30, 50)
         gpu = self._base(index, 20_000, util, 52)
         gpu.processes.append(
             ProcessReport(

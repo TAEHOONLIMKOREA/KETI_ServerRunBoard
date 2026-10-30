@@ -39,6 +39,11 @@ cd web && npm install && npm run build     # 프론트 빌드 → web/dist
 # 터미널 2: 가짜 GPU 노드. 개인 계정·컨테이너·공용 서비스·미확인 케이스가 섞인 8-GPU 시나리오
 .venv/Scripts/runboard-agent run --fake --node fake01 --server http://localhost:8000 --token dev-token-fake01
 
+# 노드를 더 띄우려면 터미널을 더 열고 이름만 바꾼다 (토큰은 runboard.example.yaml 의 node_tokens 에 fake01~fake03 이 있다).
+# 이름 끝 숫자에 따라 GPU UUID·IP·churn 주기가 달라지고, --fake-gpus 와 --no-churn 으로 구성을 바꿀 수 있다
+.venv/Scripts/runboard-agent run --fake --node fake02 --fake-gpus 4 --server http://localhost:8000 --token dev-token-fake02
+.venv/Scripts/runboard-agent run --fake --node fake03 --no-churn --server http://localhost:8000 --token dev-token-fake03
+
 # 브라우저: http://localhost:8000      API: http://localhost:8000/api/v1/overview
 ```
 

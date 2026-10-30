@@ -2,7 +2,7 @@
 
 import pytest
 
-from runboard_agent.collector.fake import CHURN_ALIVE_S, CHURN_PERIOD_S
+from runboard_agent.collector.fake import CHURN_ALIVE_S, CHURN_PERIOD_S, fake_gpu_uuid
 from runboard_server.core.owner import OwnerResolver
 from runboard_server.core.sessions import SessionTracker
 
@@ -41,8 +41,8 @@ def test_first_report_creates_workloads_and_sessions(tracker):
     assert ddp.project == "pbf-defect"
     assert len(tracker.sessions_of_workload(ddp.id)) == 2
     assert {s.gpu_uuid for s in tracker.sessions_of_workload(ddp.id)} == {
-        "GPU-fake-00-0000-0000-000000000000",
-        "GPU-fake-01-0000-0000-000000000000",
+        fake_gpu_uuid("fake01", 0),
+        fake_gpu_uuid("fake01", 1),
     }
 
     jihye = _wl_by_name(tracker, "train.py")
