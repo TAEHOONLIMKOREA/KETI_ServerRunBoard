@@ -1,12 +1,12 @@
 import { Link, useParams } from "react-router-dom";
 import { useWorkload } from "../api";
-import { ErrorBox, Loading, RefreshedAgo } from "../components/Status";
+import { ErrorBox, Loading } from "../components/Status";
 import { OwnerCell, SessionTable } from "../components/Tables";
 import { fmtElapsed, fmtTs, statusLabel, typeLabel } from "../format";
 
 export default function WorkloadDetail() {
   const { id = "" } = useParams();
-  const { data: w, error, isLoading, dataUpdatedAt } = useWorkload(id);
+  const { data: w, error, isLoading } = useWorkload(id);
   if (isLoading) return <Loading />;
   if (error) return <ErrorBox error={error} />;
   if (!w) return null;
@@ -19,8 +19,6 @@ export default function WorkloadDetail() {
         <h1 style={{ margin: 0 }}>{w.name}</h1>
         <span className="badge type">{typeLabel[w.type]}</span>
         <span className="muted">{statusLabel[w.status] ?? w.status}</span>
-        <span className="spacer" style={{ flex: 1 }} />
-        <RefreshedAgo updatedAt={dataUpdatedAt} />
       </div>
 
       <section className="card">

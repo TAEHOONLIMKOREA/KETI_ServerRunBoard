@@ -1,11 +1,13 @@
 import { Link } from "react-router-dom";
 import { useUsers } from "../api";
-import { ErrorBox, Loading, RefreshedAgo } from "../components/Status";
+import { ErrorBox, Loading } from "../components/Status";
+import { Swatch } from "../components/Swatch";
+import { userPaint } from "../colors";
 import { fmtGb } from "../format";
 import { UNKNOWN_USER } from "../types";
 
 export default function Users() {
-  const { data, error, isLoading, dataUpdatedAt } = useUsers();
+  const { data, error, isLoading } = useUsers();
   if (isLoading) return <Loading />;
   if (error) return <ErrorBox error={error} />;
   if (!data) return null;
@@ -14,8 +16,6 @@ export default function Users() {
     <>
       <div className="controls">
         <h1 style={{ margin: 0 }}>사용자</h1>
-        <span className="spacer" style={{ flex: 1 }} />
-        <RefreshedAgo updatedAt={dataUpdatedAt} />
       </div>
       <p className="note">
         현재 점유 기준입니다. 점유 시간과 GB·시간 통계는 작업 상세의 세션 표에서 볼 수 있습니다.
@@ -37,6 +37,7 @@ export default function Users() {
             return (
               <tr key={key}>
                 <td>
+                  <Swatch paint={userPaint(u)} />{" "}
                   <Link to={`/users/${encodeURIComponent(key)}`} className={u.username ? "" : "owner unknown"}>
                     {u.display_name}
                   </Link>

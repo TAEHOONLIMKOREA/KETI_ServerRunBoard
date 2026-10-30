@@ -22,6 +22,7 @@ export interface WorkloadOnGpu {
   owner: string | null;
   owner_display: string | null;
   owner_source: string;
+  owner_slot: number | null;
   service_name: string | null;
   project: string | null;
   status: WorkloadStatus;
@@ -152,6 +153,7 @@ export interface User {
   username: string | null;
   display_name: string;
   registered: boolean;
+  color_slot: number | null;
   workloads: number;
   gpus: number;
   mem_used_mb: number;

@@ -13,6 +13,18 @@
   --orange: #ea580c;
   --gray: #9ca3af;
   --warn-bg: rgba(234, 88, 12, 0.12);
+  /* 소유자 범주색 8개 (라이트). 순서가 CVD 안전 장치라 바꾸지 않는다. 카드 배경 #ffffff 에 대해 검증함 */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
+  --series-free: #0ca30c; /* 빈 GPU: 상태색 good */
+  --series-neutral: #898781; /* 공용 서비스, 9번째 이후 사용자, 미확인(빗금) */
+  --tint: 12%; /* 행 배경에 섞는 소유자 색 비율 */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -31,6 +43,15 @@
     --orange: #fb923c;
     --gray: #6b7280;
     --warn-bg: rgba(251, 146, 60, 0.16);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+    --tint: 20%;
   }
 }
 
@@ -49,6 +70,15 @@
   --orange: #fb923c;
   --gray: #6b7280;
   --warn-bg: rgba(251, 146, 60, 0.16);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --tint: 20%;
 }
 
 * {
@@ -136,31 +166,6 @@ a:hover {
   color: var(--text);
   font: inherit;
 }
-.chips {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-.chip {
-  border: 1px solid var(--border);
-  background: var(--card);
-  color: var(--muted);
-  border-radius: 999px;
-  padding: 3px 10px;
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-}
-.chip.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-.refresh {
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
 
 /* ---------- summary ---------- */
 .summary {
@@ -188,6 +193,38 @@ a:hover {
   color: var(--orange);
 }
 
+/* ---------- color legend & swatches ---------- */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-item b {
+  font-weight: 600;
+  color: var(--text);
+}
+.swatch {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  vertical-align: -1px;
+  background: var(--series-neutral);
+}
+.swatch.unknown {
+  background: repeating-linear-gradient(135deg, var(--series-neutral) 0 2px, transparent 2px 4px);
+  box-shadow: inset 0 0 0 1px var(--series-neutral);
+}
+
 /* ---------- cards & grid ---------- */
 .node-grid {
   display: grid;
@@ -203,7 +240,7 @@ a:hover {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 10px 14px 6px;
+  padding: 10px 14px 8px;
 }
 .card.offline {
   opacity: 0.6;
@@ -247,15 +284,29 @@ a:hover {
   background: var(--gray);
 }
 
-/* ---------- gpu rows ---------- */
+/* ---------- gpu rows ----------
+   행마다 --row 에 소유자 색이 들어온다 (GpuRow.tsx). 왼쪽 테두리와 옅은 배경, 사용률 막대가 같은 색을 쓴다.
+   같은 사람의 GPU 는 노드가 달라도 같은 색이고, 빈 GPU 는 초록, 소유자 미확인은 빗금이다. */
 .gpu-row {
+  --row: var(--series-neutral);
   display: grid;
   grid-template-columns: 34px minmax(90px, 160px) 44px 92px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-  padding: 6px 0;
-  border-top: 1px solid var(--border);
+  margin: 4px 0;
+  padding: 5px 8px 5px 10px;
+  border-left: 4px solid var(--row);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--row) var(--tint), transparent);
   font-size: 13px;
+}
+.gpu-row.unknown {
+  border-left-style: dashed;
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--row) var(--tint), transparent) 0 7px,
+    transparent 7px 14px
+  );
 }
 @media (max-width: 700px) {
   .gpu-row {
@@ -280,25 +331,8 @@ a:hover {
   display: block;
   height: 100%;
   border-radius: 5px;
+  background: var(--row);
   transition: width 0.4s ease;
-}
-.bg-green {
-  background: var(--green);
-}
-.bg-yellow {
-  background: var(--yellow);
-}
-.bg-red {
-  background: var(--red);
-}
-.bg-blue {
-  background: var(--blue);
-}
-.bg-orange {
-  background: var(--orange);
-}
-.bg-gray {
-  background: var(--gray);
 }
 .num {
   text-align: right;
@@ -314,7 +348,7 @@ a:hover {
 }
 .wl-item {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   min-width: 0;
   white-space: nowrap;
@@ -334,9 +368,16 @@ a:hover {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.free {
-  color: var(--green);
-  font-weight: 600;
+.free-pill {
+  display: inline-block;
+  color: #fff;
+  background: var(--series-free);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  line-height: 1.6;
+  padding: 0 9px;
+  border-radius: 999px;
 }
 
 /* ---------- badges ---------- */

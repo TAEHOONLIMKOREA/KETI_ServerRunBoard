@@ -2,7 +2,7 @@ import { useParams } from "react-router-dom";
 import { useNode, useWorkloads } from "../api";
 import { Badges } from "../components/Badges";
 import { ConnDot } from "../components/NodeCard";
-import { ErrorBox, Loading, RefreshedAgo } from "../components/Status";
+import { ErrorBox, Loading } from "../components/Status";
 import { WorkloadTable } from "../components/Tables";
 import { fmtAgo, fmtGb, fmtMemPair, fmtPct } from "../format";
 
@@ -28,8 +28,6 @@ export default function NodeDetail() {
           <ConnDot status={n.conn_status} />
         </span>
         <span className="muted">마지막 보고 {fmtAgo(n.age_s)}</span>
-        <span className="spacer" style={{ flex: 1 }} />
-        <RefreshedAgo updatedAt={node.dataUpdatedAt} />
       </div>
 
       <section className="card">

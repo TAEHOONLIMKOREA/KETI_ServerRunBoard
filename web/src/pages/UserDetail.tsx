@@ -1,12 +1,12 @@
 import { useParams } from "react-router-dom";
 import { useUser } from "../api";
-import { ErrorBox, Loading, RefreshedAgo } from "../components/Status";
+import { ErrorBox, Loading } from "../components/Status";
 import { WorkloadTable } from "../components/Tables";
 import { fmtGb } from "../format";
 
 export default function UserDetail() {
   const { username = "" } = useParams();
-  const { data, error, isLoading, dataUpdatedAt } = useUser(username);
+  const { data, error, isLoading } = useUser(username);
   if (isLoading) return <Loading />;
   if (error) return <ErrorBox error={error} />;
   if (!data) return null;
@@ -17,8 +17,6 @@ export default function UserDetail() {
       <div className="controls">
         <h1 style={{ margin: 0 }}>{u.display_name}</h1>
         {u.username && <span className="muted">{u.username}</span>}
-        <span className="spacer" style={{ flex: 1 }} />
-        <RefreshedAgo updatedAt={dataUpdatedAt} />
       </div>
       {u.username === null && (
         <p className="note">
