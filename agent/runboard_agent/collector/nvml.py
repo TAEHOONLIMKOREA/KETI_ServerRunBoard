@@ -62,8 +62,11 @@ def _error_code(exc: Exception) -> str:
 
 
 class NvmlCollector:
-    def __init__(self, node_name: str, enricher: Enricher | None = None) -> None:
+    def __init__(
+        self, node_name: str, node_id: str | None = None, enricher: Enricher | None = None
+    ) -> None:
         self.node_name = node_name
+        self.node_id = node_id
         self.enricher = enricher or Enricher()
         self.boot_id = read_boot_id()
         self._ready = False
@@ -114,6 +117,7 @@ class NvmlCollector:
 
         node = NodeInfo(
             name=self.node_name,
+            node_id=self.node_id,
             ip=local_ip(),
             boot_id=self.boot_id,
             driver_version=driver,

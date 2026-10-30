@@ -18,3 +18,9 @@ def test_run_loop_once_declares_active_interval(capsys):
 def test_run_loop_once_idle_node_declares_idle_interval(capsys):
     assert run_loop(_cfg(0), once=True, print_json=True, stop=threading.Event()) == 0
     assert json.loads(capsys.readouterr().out)["node"]["report_interval_s"] == 30.0
+
+
+def test_run_loop_sends_configured_node_id(capsys):
+    cfg = AgentConfig(collector="fake", node_id="node-uuid-1", fake=FakeOptions(gpu_count=1))
+    assert run_loop(cfg, once=True, print_json=True, stop=threading.Event()) == 0
+    assert json.loads(capsys.readouterr().out)["node"]["node_id"] == "node-uuid-1"

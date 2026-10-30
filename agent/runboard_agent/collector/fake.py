@@ -89,8 +89,10 @@ class FakeCollector:
         churn: bool = True,
         boot_id: str | None = None,
         clock=time.time,
+        node_id: str | None = None,
     ) -> None:
         self.node_name = node_name
+        self.node_id = node_id
         self.gpu_count = max(0, min(8, gpu_count))
         self.churn = churn
         self.boot_id = boot_id or stable_boot_id(node_name)
@@ -109,6 +111,7 @@ class FakeCollector:
         return NodeReport(
             node=NodeInfo(
                 name=self.node_name,
+                node_id=self.node_id,
                 ip=fake_ip(self.node_name),
                 boot_id=self.boot_id,
                 driver_version="550.54.15",

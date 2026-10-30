@@ -75,6 +75,7 @@ else
 server_url = "$SERVER"
 token = "$TOKEN"
 node_name = "$NODE"
+node_id = "$(cat /proc/sys/kernel/random/uuid)"   # 재부팅·호스트명 변경 뒤에도 같은 노드로 인식하는 고정 식별자
 active_interval = 1.0   # GPU 동작 중(프로세스가 있거나 사용률 > 0) 보고 주기. 수집 주기이기도 하다
 idle_interval = 30.0    # GPU 유휴 시 보고 주기
 idle_grace = 5.0        # 동작이 멈춘 뒤 빠른 주기를 유지하는 시간

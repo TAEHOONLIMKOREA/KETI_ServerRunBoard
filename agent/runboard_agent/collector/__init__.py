@@ -12,6 +12,7 @@ def make_collector(cfg: AgentConfig) -> Collector:
 
         return FakeCollector(
             node_name=cfg.node_name,
+            node_id=cfg.node_id,
             gpu_count=cfg.fake.gpu_count,
             churn=cfg.fake.churn,
             boot_id=cfg.fake.boot_id,
@@ -19,7 +20,7 @@ def make_collector(cfg: AgentConfig) -> Collector:
     if cfg.collector == "nvml":
         from runboard_agent.collector.nvml import NvmlCollector
 
-        return NvmlCollector(node_name=cfg.node_name)
+        return NvmlCollector(node_name=cfg.node_name, node_id=cfg.node_id)
     raise ValueError(f"알 수 없는 collector: {cfg.collector}")
 
 

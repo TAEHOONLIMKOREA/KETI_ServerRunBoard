@@ -5,6 +5,7 @@
 - idle_interval:   GPU 가 모두 놀고 있을 때의 보고 주기
 - idle_grace:      동작이 멈춘 뒤에도 이 시간 동안은 active_interval 로 보고한다
 "interval" 은 예전 이름으로 active_interval 과 같다. 둘 다 있으면 active_interval 을 쓴다.
+node_id 는 재부팅·호스트명 변경 뒤에도 같은 노드로 인식되게 하는 고정 식별자다. 설치 스크립트가 UUID 를 써 준다.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ ENV_KEYS: dict[str, str] = {
     "RUNBOARD_SERVER": "server_url",
     "RUNBOARD_TOKEN": "token",
     "RUNBOARD_NODE_NAME": "node_name",
+    "RUNBOARD_NODE_ID": "node_id",
     "RUNBOARD_ACTIVE_INTERVAL": "active_interval",
     "RUNBOARD_IDLE_INTERVAL": "idle_interval",
     "RUNBOARD_IDLE_GRACE": "idle_grace",
@@ -51,6 +53,7 @@ class AgentConfig:
     server_url: str | None = None
     token: str | None = None
     node_name: str = field(default_factory=socket.gethostname)
+    node_id: str | None = None
     active_interval: float = 1.0
     idle_interval: float = 30.0
     idle_grace: float = 5.0
@@ -88,7 +91,7 @@ class AgentConfig:
             boot_id=fake_raw.get("boot_id"),
         )
         kwargs: dict[str, Any] = {"fake": fake}
-        for key in ("server_url", "token", "node_name", "collector"):
+        for key in ("server_url", "token", "node_name", "node_id", "collector"):
             if data.get(key) is not None:
                 kwargs[key] = str(data[key])
         for key in ("active_interval", "idle_interval", "idle_grace", "timeout"):

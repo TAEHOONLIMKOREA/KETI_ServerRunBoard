@@ -42,6 +42,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--token", help="노드 토큰")
     run.add_argument("--node", dest="node_name", help="노드 이름 (기본 hostname)")
     run.add_argument(
+        "--node-id", help="고정 노드 식별자. 재부팅·호스트명 변경 뒤에도 같은 노드로 인식된다"
+    )
+    run.add_argument(
         "--active-interval",
         type=float,
         help="GPU 동작 중 보고 주기 초 (기본 1). 수집 주기이기도 하다",
@@ -77,6 +80,7 @@ def _overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
         "server_url": args.server,
         "token": args.token,
         "node_name": args.node_name,
+        "node_id": args.node_id,
         "active_interval": args.active_interval,
         "idle_interval": args.idle_interval,
         "idle_grace": args.idle_grace,

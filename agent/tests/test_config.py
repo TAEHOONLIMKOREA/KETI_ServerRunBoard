@@ -63,3 +63,11 @@ def test_missing_explicit_file_is_error(tmp_path: Path):
 def test_validation(data):
     with pytest.raises(ValueError):
         AgentConfig.from_dict(data)
+
+
+def test_node_id_from_env_and_file(tmp_path: Path):
+    assert load_config(None, env={}).node_id is None
+    assert load_config(None, env={"RUNBOARD_NODE_ID": "abc-123"}).node_id == "abc-123"
+    toml = tmp_path / "agent.toml"
+    toml.write_text("node_id = 'from-file'", encoding="utf-8")
+    assert load_config(toml, env={}).node_id == "from-file"
