@@ -22,13 +22,20 @@ Health = Literal["ok", "temp_warn", "collect_error"]
 Color = Literal["gray", "green", "blue", "yellow", "red", "orange"]
 
 
-def conn_status(last_received_ts: float | None, now: float, th: Thresholds) -> ConnStatus:
+def conn_status(
+    last_received_ts: float | None, now: float, th: Thresholds, interval_s: float = 0.0
+) -> ConnStatus:
+    """마지막 수신 뒤 '보고 주기 + delayed_s' 가 지나면 지연, '보고 주기 + offline_s' 가 지나면 끊김.
+
+    interval_s 는 에이전트가 보고에 적어 보낸 다음 보고까지의 최대 간격이다 (동작 중 1초, 유휴 30초).
+    모르면 0 으로 두어 임계값만으로 판정한다.
+    """
     if last_received_ts is None:
         return "offline"
     age = now - last_received_ts
-    if age > th.offline_s:
+    if age > interval_s + th.offline_s:
         return "offline"
-    if age > th.delayed_s:
+    if age > interval_s + th.delayed_s:
         return "delayed"
     return "online"
 

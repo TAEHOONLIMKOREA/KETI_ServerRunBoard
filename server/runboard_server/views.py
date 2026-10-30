@@ -57,6 +57,9 @@ class NodeOut(BaseModel):
     last_received_ts: float
     last_measured_ts: float
     age_s: float
+    report_interval_s: float | None = Field(
+        default=None, description="에이전트가 보고에 적은 다음 보고까지의 최대 간격(초)"
+    )
     boot_id: str
     driver_version: str | None
     cuda_version: str | None

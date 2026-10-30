@@ -154,3 +154,22 @@ def test_clock_skew_uses_received_time(client, app, fake_report):
     node = client.get("/api/v1/overview").json()["nodes"][0]
     assert node["clock_skew_flag"] is True and node["clock_skew_s"] == pytest.approx(600)
     assert node["conn_status"] == "online", "연결 판정은 수신 시각 기준"
+
+
+def test_idle_node_declared_interval_extends_thresholds(client, app, fake_report):
+    """유휴 노드는 30초마다 보고한다고 적어 보내므로, 그 주기만큼 지연·끊김 판정이 늦춰진다."""
+    clock = app.state.clock
+    engine = app.state.engine
+    report = fake_report(now=BASE + 5)
+    report.node.report_interval_s = 30.0
+    assert post(client, report).status_code == 204
+    assert client.get("/api/v1/nodes/fake01").json()["report_interval_s"] == 30.0
+
+    def status_at(now: float) -> str:
+        clock.now = now
+        engine.tick()
+        return client.get("/api/v1/nodes/fake01").json()["conn_status"]
+
+    assert status_at(BASE + 40) == "online", "30초 주기 + 지연 15초 전"
+    assert status_at(BASE + 55) == "delayed"
+    assert status_at(BASE + 70) == "offline"

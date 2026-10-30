@@ -91,7 +91,9 @@ class Engine:
             now = self.clock() if now is None else now
             for node in self.state.nodes.values():
                 name = node.info.name
-                status = conn_status(node.received_ts, now, self.th)
+                status = conn_status(
+                    node.received_ts, now, self.th, node.info.report_interval_s or 0.0
+                )
                 if status != node.conn_status:
                     log.info("노드 %s 연결 상태 %s → %s", name, node.conn_status, status)
                     node.conn_status = status
@@ -203,7 +205,7 @@ class Engine:
     # ------------------------------------------------------------------ 뷰 조립
 
     def _node_out(self, node: NodeState, now: float) -> NodeOut:
-        conn = conn_status(node.received_ts, now, self.th)
+        conn = conn_status(node.received_ts, now, self.th, node.info.report_interval_s or 0.0)
         gpus = [
             self._gpu_out(node, g, conn, now)
             for g in sorted(node.gpus.values(), key=lambda g: g.report.index)
@@ -215,6 +217,7 @@ class Engine:
             last_received_ts=node.received_ts,
             last_measured_ts=node.measured_ts,
             age_s=max(0.0, now - node.received_ts),
+            report_interval_s=node.info.report_interval_s,
             boot_id=node.info.boot_id,
             driver_version=node.info.driver_version,
             cuda_version=node.info.cuda_version,

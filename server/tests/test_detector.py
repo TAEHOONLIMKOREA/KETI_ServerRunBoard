@@ -18,6 +18,12 @@ def test_conn_status_thresholds():
     assert conn_status(100, 131, TH) == "offline"
 
 
+def test_conn_status_adds_declared_interval():
+    assert conn_status(100, 131, TH, interval_s=30) == "online", "유휴 노드는 30초 보고라 아직 정상"
+    assert conn_status(100, 146, TH, interval_s=30) == "delayed"
+    assert conn_status(100, 161, TH, interval_s=30) == "offline"
+
+
 def test_occupancy():
     assert occupancy([]) == "free"
     assert occupancy(["shared_service"]) == "service"

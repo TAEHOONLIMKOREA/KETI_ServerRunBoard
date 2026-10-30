@@ -31,6 +31,8 @@ class AuthSection(BaseModel):
 
 
 class Thresholds(BaseModel):
+    """판정 임계값. delayed_s·offline_s 는 에이전트가 보고에 적은 보고 주기에 더해서 쓴다 (core/detector.py)."""
+
     delayed_s: float = 15.0
     offline_s: float = 30.0
     offline_close_after_s: float = 86400.0
