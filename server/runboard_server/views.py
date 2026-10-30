@@ -54,7 +54,10 @@ class GpuOut(BaseModel):
 
 
 class NodeOut(BaseModel):
-    name: str
+    key: str = Field(description="노드 식별자. 에이전트 node_id, 없으면 노드 이름. API 경로에 쓴다")
+    display_name: str = Field(description="화면 이름. 처음 보고한 순서대로 Server_n 을 자동 배정")
+    hostname: str = Field(description="에이전트가 보고한 노드 이름(호스트명)")
+    node_id: str | None = None
     ip: str | None
     conn_status: str
     last_received_ts: float
@@ -121,6 +124,7 @@ class WorkloadOut(BaseModel):
     id: str
     key: str
     node: str
+    node_display: str = Field(description="노드 화면 이름")
     type: str
     name: str
     owner: str | None

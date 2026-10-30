@@ -66,7 +66,8 @@ def test_overview_reflects_types_owners_and_axes(client, fake_report):
         "workloads": 6,
     }
     node = body["nodes"][0]
-    assert node["name"] == "fake01" and node["conn_status"] == "online"
+    assert node["key"] == "fake01" and node["hostname"] == "fake01"
+    assert node["display_name"] == "Server_1" and node["conn_status"] == "online"
     gpus = {g["index"]: g for g in node["gpus"]}
 
     ddp = gpus[0]["workloads"][0]
@@ -176,3 +177,33 @@ def test_idle_node_declared_interval_extends_thresholds(client, app, fake_report
     assert status_at(BASE + 40) == "online", "30초 주기 + 지연 15초 전"
     assert status_at(BASE + 55) == "delayed"
     assert status_at(BASE + 70) == "offline"
+
+
+def test_nodes_join_with_shared_token_and_keep_sequential_names(client, app, fake_report):
+    """등록 토큰으로 보고하면 미리 등록하지 않은 노드도 참여한다. 처음 본 순서대로 Server_n 을 받고,
+    node_id 가 같으면 호스트명이 바뀌어도 같은 노드, node_id 가 없으면 호스트명이 식별자다."""
+    app.state.config.auth.shared_token = "join-token"
+    a = fake_report(now=BASE + 5, node="hostA")
+    a.node.node_id = "id-A"
+    b = fake_report(now=BASE + 5, node="hostB", gpu_count=2)
+    b.node.node_id = "id-B"
+    assert post(client, a, token="join-token").status_code == 204
+    assert post(client, b, token="join-token").status_code == 204
+    assert post(client, b, token="wrong").status_code == 401
+    nodes = {n["key"]: n for n in client.get("/api/v1/overview").json()["nodes"]}
+    assert nodes["id-A"]["display_name"] == "Server_1" and nodes["id-A"]["hostname"] == "hostA"
+    assert nodes["id-B"]["display_name"] == "Server_2" and nodes["id-B"]["node_id"] == "id-B"
+
+    renamed = fake_report(now=BASE + 6, node="hostA-renamed")
+    renamed.node.node_id = "id-A"
+    post(client, renamed, token="join-token")
+    body = client.get("/api/v1/overview").json()
+    assert body["summary"]["nodes"] == 2, "호스트명이 바뀌어도 같은 노드"
+    assert client.get("/api/v1/nodes/id-A").json()["hostname"] == "hostA-renamed"
+
+    post(client, fake_report(now=BASE + 6, node="hostC", gpu_count=1), token="join-token")
+    assert client.get("/api/v1/nodes/hostC").json()["display_name"] == "Server_3"
+    names = [n["display_name"] for n in client.get("/api/v1/overview").json()["nodes"]]
+    assert names == ["Server_1", "Server_2", "Server_3"], "순번 순으로 나온다"
+    wl = client.get("/api/v1/workloads", params={"node": "id-A"}).json()["workloads"]
+    assert wl and wl[0]["node_display"] == "Server_1"

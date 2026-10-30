@@ -15,6 +15,11 @@ def test_ingest_persists_and_restores(config, fake_report):
     engine.ingest(fake_report(now=BASE + 5))
 
     assert repo.count(NodeRow) == 1
+    with repo.orm() as db:
+        row = db.get(NodeRow, "fake01")
+    assert (row.hostname, row.display_name, row.seq) == ("fake01", "Server_1", 1), (
+        "첫 보고에 바로 등록"
+    )
     assert repo.count(GpuRow) == 8
     assert repo.count(GpuSampleRow) == 8, "첫 보고는 바로 샘플을 쓴다"
     assert repo.count(WorkloadRow) == 6
@@ -43,6 +48,7 @@ def test_ingest_persists_and_restores(config, fake_report):
     fresh.restore()
     node = fresh.state.nodes["fake01"]
     assert node.conn_status == "offline" and len(node.gpus) == 8, "노드는 비활성화로 남는다"
+    assert node.display_name == "Server_1" and node.seq == 1, "이름은 재시작 뒤에도 그대로"
     ddp = next(g.report for g in node.gpus.values() if g.report.index == 0)
     assert ddp.mem_used_mb == 65_000 and ddp.mem_total_mb == 81920, "마지막 샘플 값으로 채운다"
     summary = fresh.overview(now=BASE + 100).summary
@@ -67,4 +73,40 @@ def test_tick_updates_node_status_in_db(config, fake_report):
         assert row.conn_status == "offline"
         statuses = {r.status for r in db.query(SessionRow).all()}
     assert statuses == {"unknown"}
+    repo.close()
+
+
+def test_load_nodes_backfills_display_names_once():
+    repo = Repository("sqlite://")
+    with repo.orm() as db:
+        db.add(NodeRow(name="old01", first_seen=1.0, last_received_ts=1.0, last_measured_ts=1.0))
+        db.add(NodeRow(name="old02", first_seen=2.0, last_received_ts=2.0, last_measured_ts=2.0))
+        db.commit()
+    nodes = repo.load_nodes(prefix="Srv_")
+    assert [(n.key, n.display_name, n.seq) for n in nodes] == [
+        ("old01", "Srv_1", 1),
+        ("old02", "Srv_2", 2),
+    ]
+    assert nodes[0].info.name == "old01" and nodes[0].info.node_id is None, "옛 행은 이름이 식별자"
+    again = repo.load_nodes(prefix="Other_")
+    assert [n.display_name for n in again] == ["Srv_1", "Srv_2"], "한 번 붙인 이름은 유지"
+    repo.close()
+
+
+def test_hostname_change_is_saved_immediately(config, fake_report):
+    repo = Repository("sqlite://")
+    engine = Engine(config, repo, clock=lambda: BASE + 5)
+    first = fake_report(now=BASE + 5, node="host-a")
+    first.node.node_id = "id-a"
+    engine.ingest(first)
+    engine.clock = lambda: BASE + 6
+    renamed = fake_report(now=BASE + 6, node="host-a2")
+    renamed.node.node_id = "id-a"
+    engine.ingest(renamed)
+    with repo.orm() as db:
+        row = db.get(NodeRow, "id-a")
+    assert (row.hostname, row.display_name) == ("host-a2", "Server_1"), (
+        "persist 간격을 기다리지 않는다"
+    )
+    assert repo.count(GpuSampleRow) == 8, "샘플은 간격대로만 쓴다"
     repo.close()

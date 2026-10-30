@@ -10,7 +10,7 @@ import logging
 from collections.abc import Iterable
 from pathlib import Path
 
-from sqlalchemy import create_engine, event, func, select
+from sqlalchemy import create_engine, event, func, inspect, select, text
 from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -55,18 +55,32 @@ class Repository:
                 cursor.close()
 
         Base.metadata.create_all(self.engine)
+        self._add_missing_columns()
         self._sessions = sessionmaker(self.engine, expire_on_commit=False)
 
     def close(self) -> None:
         self.engine.dispose()
 
+    def _add_missing_columns(self) -> None:
+        """create_all 은 기존 테이블에 열을 추가하지 않는다. Alembic(v0.2) 전까지 nullable 열만 ADD COLUMN 한다."""
+        wanted = {"hostname": "VARCHAR(64)", "display_name": "VARCHAR(64)", "seq": "INTEGER"}
+        existing = {c["name"] for c in inspect(self.engine).get_columns("nodes")}
+        missing = [(col, ddl) for col, ddl in wanted.items() if col not in existing]
+        if not missing:
+            return
+        with self.engine.begin() as conn:
+            for col, ddl in missing:
+                conn.execute(text(f"ALTER TABLE nodes ADD COLUMN {col} {ddl}"))
+        log.info("nodes 표에 열 추가: %s", ", ".join(col for col, _ in missing))
+
     # ------------------------------------------------------------------ 노드·GPU·샘플
 
     def upsert_node(self, node: NodeState) -> None:
         with self._sessions.begin() as db:
-            row = db.get(NodeRow, node.info.name) or NodeRow(
-                name=node.info.name, first_seen=node.first_seen
-            )
+            row = db.get(NodeRow, node.key) or NodeRow(name=node.key, first_seen=node.first_seen)
+            row.hostname = node.info.name
+            row.display_name = node.display_name
+            row.seq = node.seq
             row.ip = node.info.ip
             row.boot_id = node.info.boot_id
             row.driver_version = node.info.driver_version
@@ -79,7 +93,7 @@ class Repository:
             db.add(row)
             for uuid, gpu in node.gpus.items():
                 grow = db.get(GpuRow, uuid) or GpuRow(uuid=uuid, first_seen=gpu.first_seen)
-                grow.node_name = node.info.name
+                grow.node_name = node.key
                 grow.index = gpu.report.index
                 grow.name = gpu.report.name
                 grow.memory_total_mb = gpu.report.mem_total_mb
@@ -124,16 +138,25 @@ class Repository:
             for s in sessions:
                 db.merge(SessionRow(**{f: getattr(s, f) for f in _SESSION_FIELDS}))
 
-    def load_nodes(self) -> list[NodeState]:
+    def load_nodes(self, prefix: str = "Server_") -> list[NodeState]:
         """재시작 복원용: 알려진 노드 전부. GPU 는 마지막 샘플 값으로 채우고 연결 상태는 끊김으로 둔다.
 
         에이전트가 한 번이라도 보고한 노드는 서버가 재시작돼도 사라지지 않고 '비활성화' 로 남는다.
+        화면 이름이 없는 행(열을 추가하기 전 데이터)은 처음 본 순서대로 Server_n 을 붙여 저장한다.
         """
         out: list[NodeState] = []
-        with self._sessions() as db:
-            for n in db.scalars(select(NodeRow).order_by(NodeRow.name)).all():
+        with self._sessions.begin() as db:
+            rows = db.scalars(select(NodeRow).order_by(NodeRow.first_seen, NodeRow.name)).all()
+            next_seq = max((r.seq or 0 for r in rows), default=0) + 1
+            for n in rows:
+                if n.seq is None or not n.display_name:
+                    n.seq = next_seq
+                    n.display_name = f"{prefix}{next_seq}"
+                    next_seq += 1
+                hostname = n.hostname or n.name
                 info = NodeInfo(
-                    name=n.name,
+                    name=hostname,
+                    node_id=None if n.name == hostname else n.name,
                     ip=n.ip,
                     boot_id=n.boot_id or "unknown",
                     driver_version=n.driver_version,
@@ -142,6 +165,7 @@ class Repository:
                     measured_ts=n.last_measured_ts,
                 )
                 node = NodeState(
+                    key=n.name,
                     info=info,
                     first_seen=n.first_seen,
                     received_ts=n.last_received_ts,
@@ -149,6 +173,8 @@ class Repository:
                     ts=n.last_measured_ts,
                     clock_skew_s=n.clock_skew_s,
                     conn_status="offline",
+                    display_name=n.display_name,
+                    seq=n.seq,
                 )
                 gpu_rows = db.scalars(
                     select(GpuRow).where(GpuRow.node_name == n.name).order_by(GpuRow.index)
@@ -174,6 +200,7 @@ class Repository:
                     )
                     node.gpus[g.uuid] = GpuState(report=report, first_seen=g.first_seen)
                 out.append(node)
+        out.sort(key=lambda n: (n.seq or 0, n.key))
         return out
 
     def load_open(self) -> tuple[list[Workload], list[Session]]:

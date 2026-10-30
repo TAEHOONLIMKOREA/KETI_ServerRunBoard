@@ -17,7 +17,12 @@ class Base(DeclarativeBase):
 class NodeRow(Base):
     __tablename__ = "nodes"
 
-    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(
+        String(64), primary_key=True
+    )  # 식별자: 에이전트 node_id, 없으면 노드 이름
+    hostname: Mapped[str | None] = mapped_column(String(64))  # 에이전트가 보고한 이름
+    display_name: Mapped[str | None] = mapped_column(String(64))  # 화면 이름. 처음 보면 Server_n
+    seq: Mapped[int | None] = mapped_column(Integer)  # 처음 본 순서
     ip: Mapped[str | None] = mapped_column(String(64))
     boot_id: Mapped[str | None] = mapped_column(String(64))
     driver_version: Mapped[str | None] = mapped_column(String(32))

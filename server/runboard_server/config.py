@@ -21,6 +21,10 @@ class ServerSection(BaseModel):
     web_dist: str | None = Field(default=None, description="빌드된 프론트 디렉터리. 없으면 API 만")
     host: str = "0.0.0.0"
     port: int = 8000
+    display_name_prefix: str = Field(
+        default="Server_",
+        description="처음 본 노드의 화면 이름 접두어. Server_1, Server_2 … 순으로 붙는다",
+    )
 
 
 class AuthSection(BaseModel):

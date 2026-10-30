@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -131,7 +132,9 @@ class OwnerResolver:
     def service(self, name: str) -> ServiceEntry | None:
         return self._service_by_name.get(name)
 
-    def classify(self, proc: ProcessReport, node_name: str) -> OwnerDecision:
+    def classify(self, proc: ProcessReport, node_name: str | Sequence[str]) -> OwnerDecision:
+        """node_name 은 노드를 가리키는 이름들. 식별자·호스트명·화면 이름 중 어느 것으로 매핑해도 맞는다."""
+        names = (node_name,) if isinstance(node_name, str) else tuple(n for n in node_name if n)
         labels = proc.container.labels if proc.container else {}
         project = labels.get(self._label_project) or None
         job = labels.get(self._label_job) or None
@@ -145,7 +148,7 @@ class OwnerResolver:
             workload_type = "personal"
         service_name = matched.entry.name if matched else None
 
-        owner, source = self._resolve_owner(proc, node_name, labels, matched)
+        owner, source = self._resolve_owner(proc, names, labels, matched)
         return OwnerDecision(
             workload_type=workload_type,
             owner=owner,
@@ -158,7 +161,7 @@ class OwnerResolver:
     def _resolve_owner(
         self,
         proc: ProcessReport,
-        node_name: str,
+        names: tuple[str, ...],
         labels: dict[str, str],
         service: _CompiledService | None,
     ) -> tuple[str | None, OwnerSource]:
@@ -177,9 +180,8 @@ class OwnerResolver:
             return self.canonical(service.entry.owner) or service.entry.owner, "service"
 
         if proc.exec_uid is not None:
-            mapped = self._acct_by_node.get((node_name, proc.exec_uid)) or self._acct_any.get(
-                proc.exec_uid
-            )
+            by_node = (self._acct_by_node.get((n, proc.exec_uid)) for n in names)
+            mapped = next((m for m in by_node if m), None) or self._acct_any.get(proc.exec_uid)
             if mapped:
                 return self.canonical(mapped) or mapped, "account_map"
         if proc.exec_uid != 0:

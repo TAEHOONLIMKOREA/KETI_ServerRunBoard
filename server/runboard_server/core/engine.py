@@ -26,7 +26,7 @@ from runboard_server.core.detector import (
 )
 from runboard_server.core.owner import OwnerResolver
 from runboard_server.core.sessions import Session, SessionTracker, Workload
-from runboard_server.core.state import GpuState, NodeState, StateStore
+from runboard_server.core.state import GpuState, NodeState, StateStore, node_key
 from runboard_server.views import (
     GpuOut,
     NodeOut,
@@ -66,7 +66,7 @@ class Engine:
     def restore(self) -> None:
         if self.repo is None:
             return
-        nodes = self.repo.load_nodes()
+        nodes = self.repo.load_nodes(prefix=self.cfg.server.display_name_prefix)
         workloads, sessions = self.repo.load_open()
         with self.lock:
             self.state.restore(nodes)
@@ -84,18 +84,28 @@ class Engine:
             skew = received - report.node.measured_ts
             skew_flag = abs(skew) > self.th.clock_skew_max_s
             ts = received if skew_flag else report.node.measured_ts
-            node = self.state.update(report, received, ts, skew, skew_flag)
+            key = node_key(report.node)
+            node = self.state.update(key, report, received, ts, skew, skew_flag)
+            if node.display_name is None:
+                # 처음 본 노드: 순번과 화면 이름을 붙인다. 첫 보고는 바로 DB 에 쓰이므로 재시작 뒤에도 남는다
+                node.seq = self.state.next_seq()
+                node.display_name = f"{self.cfg.server.display_name_prefix}{node.seq}"
+                log.info(
+                    "새 노드 등록: %s (호스트 %s) → %s", key, report.node.name, node.display_name
+                )
             if skew_flag:
-                log.warning("노드 %s 시계 오차 %.0fs: 수신 시각으로 대체", report.node.name, skew)
-            name = report.node.name
-            self.tracker.apply_report(report, ts, lambda p: self.resolver.classify(p, name))
+                log.warning("노드 %s 시계 오차 %.0fs: 수신 시각으로 대체", node.display_name, skew)
+            names = (key, report.node.name, node.display_name)
+            self.tracker.apply_report(
+                report, ts, lambda p: self.resolver.classify(p, names), node=key
+            )
             self._persist(node, ts, received)
 
     def tick(self, now: float | None = None) -> None:
         with self.lock:
             now = self.clock() if now is None else now
             for node in self.state.nodes.values():
-                name = node.info.name
+                name = node.key
                 status = conn_status(
                     node.received_ts, now, self.th, node.info.report_interval_s or 0.0
                 )
@@ -127,8 +137,10 @@ class Engine:
         workloads, sessions = self.tracker.take_dirty(transitions_only=not due)
         if self.repo is None:
             return
-        if due:
+        if due or node.info_dirty:
             self.repo.upsert_node(node)
+            node.info_dirty = False
+        if due:
             self.repo.insert_samples(node, ts, received)
             node.last_sample_persist_ts = ts
         self.repo.save(workloads, sessions)
@@ -140,7 +152,7 @@ class Engine:
             now = self.clock() if now is None else now
             nodes = [
                 self._node_out(n, now)
-                for n in sorted(self.state.nodes.values(), key=lambda n: n.info.name)
+                for n in sorted(self.state.nodes.values(), key=lambda n: (n.seq or 0, n.key))
             ]
             summary = Summary(
                 nodes=len(nodes),
@@ -224,7 +236,10 @@ class Engine:
             for g in sorted(node.gpus.values(), key=lambda g: g.report.index)
         ]
         return NodeOut(
-            name=node.info.name,
+            key=node.key,
+            display_name=node.display_name or node.key,
+            hostname=node.info.name,
+            node_id=node.info.node_id,
             ip=node.info.ip,
             conn_status=conn,
             last_received_ts=node.received_ts,
@@ -366,6 +381,7 @@ class Engine:
             id=w.id,
             key=w.key,
             node=w.node,
+            node_display=self._display_of(w.node),
             type=w.type,
             name=w.name,
             owner=w.owner,
@@ -386,6 +402,10 @@ class Engine:
             gpu_indexes=indexes,
             sessions=[self._session_out(s) for s in sessions],
         )
+
+    def _display_of(self, key: str) -> str:
+        node = self.state.nodes.get(key)
+        return (node.display_name or key) if node else key
 
     def _user_rows(self) -> list[UserOut]:
         groups: dict[str | None, dict] = {}
@@ -415,7 +435,7 @@ class Engine:
                 workloads=g["workloads"],
                 gpus=len(g["gpus"]),
                 mem_used_mb=g["mem"],
-                nodes=sorted(g["nodes"]),
+                nodes=sorted(self._display_of(k) for k in g["nodes"]),
                 unknown_sessions=g["unknown"],
             )
             for key, g in groups.items()

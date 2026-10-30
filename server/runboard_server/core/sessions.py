@@ -157,8 +157,10 @@ class SessionTracker:
         report: NodeReport,
         ts: float,
         decide: Callable[[ProcessReport], OwnerDecision],
+        node: str | None = None,
     ) -> None:
-        node = report.node.name
+        """node 는 노드 식별자. 없으면 보고의 노드 이름을 쓴다 (옛 호출·테스트)."""
+        node = node or report.node.name
         boot = report.node.boot_id
         previous_boot = self._node_boot.get(node)
         if previous_boot is not None and previous_boot != boot:

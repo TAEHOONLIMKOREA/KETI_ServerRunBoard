@@ -25,8 +25,14 @@ class GpuState:
             self.util_history.popleft()
 
 
+def node_key(info: NodeInfo) -> str:
+    """노드 식별자. 에이전트가 고정 node_id 를 보내면 그것, 아니면 노드 이름(호스트명)."""
+    return info.node_id or info.name
+
+
 @dataclass
 class NodeState:
+    key: str
     info: NodeInfo
     first_seen: float
     received_ts: float
@@ -35,6 +41,11 @@ class NodeState:
     clock_skew_s: float = 0.0
     clock_skew_flag: bool = False
     conn_status: str = "online"
+    display_name: str | None = None  # 화면 이름. 처음 보면 엔진이 Server_n 을 붙인다
+    seq: int | None = None  # 처음 본 순서
+    info_dirty: bool = (
+        False  # 호스트명 등 노드 정보가 바뀌어 persist 간격을 기다리지 않고 저장해야 함
+    )
     gpus: dict[str, GpuState] = field(default_factory=dict)
     errors: list[ReportError] = field(default_factory=list)
     last_sample_persist_ts: float = 0.0
@@ -57,25 +68,32 @@ class StateStore:
         for node in nodes:
             self.nodes.setdefault(node.info.name, node)
 
+    def next_seq(self) -> int:
+        """새 노드의 순번. 복원된 노드까지 포함해 가장 큰 순번 + 1."""
+        return max((n.seq or 0 for n in self.nodes.values()), default=0) + 1
+
     def update(
         self,
+        key: str,
         report: NodeReport,
         received_ts: float,
         ts: float,
         clock_skew_s: float,
         clock_skew_flag: bool,
     ) -> NodeState:
-        name = report.node.name
-        node = self.nodes.get(name)
+        node = self.nodes.get(key)
         if node is None:
             node = NodeState(
+                key=key,
                 info=report.node,
                 first_seen=received_ts,
                 received_ts=received_ts,
                 measured_ts=report.node.measured_ts,
                 ts=ts,
             )
-            self.nodes[name] = node
+            self.nodes[key] = node
+        if node.info.name != report.node.name:
+            node.info_dirty = True
         node.info = report.node
         node.received_ts = received_ts
         node.measured_ts = report.node.measured_ts
