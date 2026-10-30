@@ -1,11 +1,13 @@
 """서버로 보고를 보낸다. 실패하면 지수 백오프, 과거 데이터는 재전송하지 않는다 (PLAN 4.4.1).
 
-MVP 는 항상 최신 상태만 보낸다. 로컬 버퍼는 F-20.
+항상 최신 상태만 보낸다. 로컬 버퍼는 F-20. 백오프 중에는 ready() 가 False 라서 루프가 보내지 않는다.
 """
 
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Callable
 
 import httpx
 
@@ -26,11 +28,14 @@ class Reporter:
         timeout: float = 5.0,
         max_backoff: float = MAX_BACKOFF_S,
         transport: httpx.BaseTransport | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.server_url = server_url.rstrip("/")
         self.max_backoff = max_backoff
         self.failures = 0
         self.backoff = 0.0
+        self.retry_at = 0.0
+        self._clock = clock
         self._client = httpx.Client(
             base_url=self.server_url,
             timeout=timeout,
@@ -44,6 +49,10 @@ class Reporter:
 
     def close(self) -> None:
         self._client.close()
+
+    def ready(self, now: float | None = None) -> bool:
+        """백오프가 끝났으면 True. now 는 clock 과 같은 기준(monotonic 초)이다."""
+        return (self._clock() if now is None else now) >= self.retry_at
 
     def send(self, report: NodeReport) -> bool:
         try:
@@ -63,19 +72,17 @@ class Reporter:
             self._on_failure(f"HTTP {response.status_code}: {detail}")
         return False
 
-    def wait_time(self, interval: float) -> float:
-        """다음 보고까지 기다릴 시간. 실패 중이면 백오프가 주기보다 길 수 있다."""
-        return max(interval, self.backoff)
-
     def _on_success(self) -> None:
         if self.failures:
             log.info("서버 연결 복구 (실패 %d회 후)", self.failures)
         self.failures = 0
         self.backoff = 0.0
+        self.retry_at = 0.0
 
     def _on_failure(self, message: str) -> None:
         self.failures += 1
         self.backoff = min(self.max_backoff, float(2 ** min(self.failures, 6)))
+        self.retry_at = self._clock() + self.backoff
         if self.failures == 1 or self.failures % 10 == 0:
             log.warning(
                 "보고 실패 (%d회, 다음 재시도 %.0fs 후): %s", self.failures, self.backoff, message

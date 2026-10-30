@@ -19,16 +19,18 @@ def test_sends_bearer_token_and_json():
         return httpx.Response(204)
 
     reporter = Reporter("http://srv/", "tok-1", transport=httpx.MockTransport(handler))
+    assert reporter.ready()
     assert reporter.send(_report()) is True
     assert seen["path"] == REPORT_PATH
     assert seen["auth"] == "Bearer tok-1"
     assert seen["ctype"] == "application/json"
     assert b'"name":"fake01"' in seen["body"]
-    assert reporter.wait_time(5.0) == 5.0
+    assert reporter.ready()
 
 
 def test_backoff_grows_then_resets():
     calls = {"n": 0}
+    clock = {"now": 100.0}
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls["n"] += 1
@@ -36,14 +38,17 @@ def test_backoff_grows_then_resets():
             raise httpx.ConnectError("refused")
         return httpx.Response(204)
 
-    reporter = Reporter("http://srv", "t", transport=httpx.MockTransport(handler))
-    waits = []
+    reporter = Reporter(
+        "http://srv", "t", transport=httpx.MockTransport(handler), clock=lambda: clock["now"]
+    )
+    backoffs = []
     for _ in range(3):
         assert reporter.send(_report()) is False
-        waits.append(reporter.wait_time(5.0))
-    assert waits == [5.0, 5.0, 8.0], "2,4 는 주기 5초보다 짧아 주기를 쓰고, 8 부터 백오프"
+        backoffs.append(reporter.backoff)
+    assert backoffs == [2.0, 4.0, 8.0]
+    assert not reporter.ready(107.9) and reporter.ready(108.0), "마지막 실패 + 8초 뒤부터"
     assert reporter.send(_report()) is True
-    assert reporter.failures == 0 and reporter.wait_time(5.0) == 5.0
+    assert reporter.failures == 0 and reporter.backoff == 0.0 and reporter.ready(0.0)
 
 
 def test_backoff_caps_at_max():
@@ -53,7 +58,7 @@ def test_backoff_caps_at_max():
     reporter = Reporter("http://srv", "t", transport=httpx.MockTransport(handler))
     for _ in range(12):
         reporter.send(_report())
-    assert reporter.wait_time(5.0) == 60.0
+    assert reporter.backoff == 60.0
 
 
 def test_auth_failure_is_reported_as_failure():
