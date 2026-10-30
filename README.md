@@ -69,7 +69,7 @@ Docker 없이 돌리려면 위 개발 환경대로 설치한 뒤 `runboard-serve
 
 ### GPU 노드 (에이전트)
 
-노드마다 토큰을 하나 정해 `runboard.yaml` 의 `auth.node_tokens` 에 넣고 (평문 또는 `sha256:<hex>`), 노드에서:
+`runboard.yaml` 의 `auth.shared_token` 에 등록 토큰을 정해 두면 노드는 서버 재시작 없이 바로 참여한다. 처음 보고한 순서대로 Server_1, Server_2 … 이름을 받고 DB `nodes` 표에 한 행으로 남는다. 설치 스크립트가 `agent.toml` 에 고정 `node_id` 를 써 두므로 재부팅하거나 호스트명이 바뀌어도 같은 노드로 이어진다. 노드별로 다른 토큰을 쓰려면 `auth.node_tokens` 에 노드 이름(또는 node_id) → 토큰을 넣는다 (평문 또는 `sha256:<hex>`). 노드에서:
 
 ```bash
 git clone <this repo> && cd KETI_RunBoard

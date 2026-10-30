@@ -176,3 +176,5 @@ python3 -m venv /tmp/rb && /tmp/rb/bin/pip install ./common ./agent
 - 대시보드의 필터 칩과 "갱신 n초 전" 표시를 없애고 GPU 행을 소유자별 색으로 구분한다. 색은 runboard.yaml `users` 순서로 앞 8명에게 고정 배정하고(서버가 `owner_slot` 으로 내려줌), 공용 서비스와 9번째 이후 사용자는 중립색, 소유자 미확인은 빗금, 빈 GPU 는 초록이다. 팔레트는 dataviz 스킬의 기본 범주색 8개(라이트·다크 각각)를 이 앱의 카드 배경에 대해 검증해서 썼다. 이름은 항상 색 옆에 같이 적는다
 - 상단은 헤더 한 줄(KETI Server RunBoard, 검색창, 연결된 노드 수)만 남기고 요약 타일·내비게이션·테마 버튼을 뺐다. 검색어는 URL `?q=` 로 전달한다. 노드 카드는 이름을 크게, 그 아래 서버 요약(GPU 모델·수, IP, 드라이버/CUDA, CPU, RAM, 에이전트)과 GPU 행 순서다
 - 한 번이라도 보고한 노드는 서버가 재시작돼도 사라지지 않는다. 시작 때 `nodes`·`gpus` 와 GPU 별 마지막 샘플을 읽어 메모리에 "비활성화(끊김)" 로 올린다 (`Repository.load_nodes`). 노드를 완전히 지우려면 DB 의 `nodes` 행을 지운다
+- 노드 등록을 자동화했다. `auth.shared_token`(등록 토큰)으로 보고하면 이름을 미리 등록하지 않아도 참여하므로 노드를 추가할 때 서버를 재시작하지 않는다. 처음 본 노드는 첫 보고에서 바로 `nodes` 표에 한 행으로 들어가고 순번(`seq`)과 화면 이름(`display_name`, 기본 Server_n)을 받는다
+- 노드 식별자는 에이전트가 보내는 `node_id`(설치 스크립트가 agent.toml 에 써 주는 UUID, Docker 는 machine-id 권장), 없으면 노드 이름이다. 같은 node_id 면 호스트명이 바뀌어도 같은 노드, 다른 node_id 면 호스트명이 같아도 다른 노드다. `nodes.name` 열이 이 식별자고 `hostname` 열이 보고된 이름이다. 기존 DB 에는 시작 때 열을 추가하고 화면 이름을 채운다
