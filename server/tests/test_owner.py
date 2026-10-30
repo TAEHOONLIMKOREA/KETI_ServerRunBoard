@@ -107,3 +107,8 @@ def test_display_name(resolver):
     assert resolver.display_name("taehoon") == "임태훈"
     assert resolver.display_name("someone") == "someone"
     assert resolver.display_name(None) is None
+
+
+def test_color_slot_follows_users_order(resolver):
+    assert [resolver.color_slot(u) for u in ("taehoon", "minsu", "jihye")] == [0, 1, 2]
+    assert resolver.color_slot("someone") is None and resolver.color_slot(None) is None

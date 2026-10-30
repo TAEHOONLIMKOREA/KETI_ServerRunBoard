@@ -36,6 +36,7 @@ owner:
   label_job: runboard.job
 
 users:
+  # 순서가 대시보드 색 순서다. 앞에서부터 8명이 고유색을 받고, 그 뒤와 미등록 사용자는 중립색이다
   - username: taehoon
     display_name: 임태훈
     aliases: [th]                      # 호스트 계정명이 다르면 여기에

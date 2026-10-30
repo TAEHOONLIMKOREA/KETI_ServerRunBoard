@@ -16,6 +16,9 @@ class WorkloadOnGpu(BaseModel):
     owner: str | None
     owner_display: str | None
     owner_source: str
+    owner_slot: int | None = Field(
+        default=None, description="대시보드 색 번호 0~7 (users 순서). 없으면 중립색"
+    )
     service_name: str | None = None
     project: str | None = None
     status: str
@@ -148,6 +151,9 @@ class UserOut(BaseModel):
     username: str | None = Field(description="None 이면 미확인 묶음")
     display_name: str
     registered: bool
+    color_slot: int | None = Field(
+        default=None, description="대시보드 색 번호 0~7 (users 순서). 없으면 중립색"
+    )
     workloads: int
     gpus: int
     mem_used_mb: int

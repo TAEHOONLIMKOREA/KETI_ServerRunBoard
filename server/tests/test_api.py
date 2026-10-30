@@ -72,6 +72,7 @@ def test_overview_reflects_types_owners_and_axes(client, fake_report):
     ddp = gpus[0]["workloads"][0]
     assert ddp["type"] == "container" and ddp["owner"] == "taehoon"
     assert ddp["owner_display"] == "임태훈" and ddp["owner_source"] == "label"
+    assert ddp["owner_slot"] == 0, "users 목록 순서가 색 번호"
     assert ddp["gpu_count"] == 2 and ddp["name"] == "seg-train"
     assert gpus[1]["workloads"][0]["workload_id"] == ddp["workload_id"], "GPU 0,1 은 같은 작업"
 
@@ -90,6 +91,7 @@ def test_overview_reflects_types_owners_and_axes(client, fake_report):
 
     unknown = gpus[6]["workloads"][0]
     assert unknown["owner"] is None and unknown["owner_source"] == "none"
+    assert unknown["owner_slot"] is None
     assert "미확인 소유자" in gpus[6]["badges"]
 
     assert gpus[7]["occupancy"] == "free" and gpus[7]["color"] == "green"
@@ -105,6 +107,7 @@ def test_users_and_workloads_endpoints(client, fake_report):
     assert users["jihye"]["gpus"] == 1 and users["jihye"]["workloads"] == 1
     assert users[None]["display_name"] == "미확인" and users[None]["workloads"] == 1
     assert users["minsu"]["registered"] is True
+    assert users["minsu"]["color_slot"] == 1 and users[None]["color_slot"] is None
 
     detail = client.get(f"/api/v1/users/{UNKNOWN_USER}").json()
     assert [w["name"] for w in detail["workloads"]] == ["stoic_lovelace"]

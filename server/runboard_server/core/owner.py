@@ -28,6 +28,7 @@ from runboard_server.config import ServerConfig, ServiceEntry
 
 WorkloadType = Literal["personal", "container", "shared_service"]
 OwnerSource = Literal["label", "container_rule", "service", "account_map", "none"]
+MAX_COLOR_SLOTS = 8  # 대시보드 범주색 수. users 목록 앞 8명이 고유색을 받는다
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,9 @@ class OwnerResolver:
             for alias in user.aliases:
                 self._canonical[alias.lower()] = user.username
             self._display[user.username] = user.display_name or user.username
+        self._slot: dict[str, int] = {
+            u.username: i for i, u in enumerate(cfg.users[:MAX_COLOR_SLOTS])
+        }
 
         self._acct_by_node: dict[tuple[str, int], str] = {}
         self._acct_any: dict[int, str] = {}
@@ -117,6 +121,12 @@ class OwnerResolver:
         if username is None:
             return None
         return self._display.get(username, username)
+
+    def color_slot(self, username: str | None) -> int | None:
+        """대시보드 색 번호 (0~7). runboard.yaml users 순서대로 앞 8명. 그 밖은 None (중립색)."""
+        if username is None:
+            return None
+        return self._slot.get(username)
 
     def service(self, name: str) -> ServiceEntry | None:
         return self._service_by_name.get(name)
