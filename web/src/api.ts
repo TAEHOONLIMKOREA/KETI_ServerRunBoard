@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Node, Overview, UserDetail, UsersOut, Workload, WorkloadsOut } from "./types";
 
-export const REFRESH_MS = 5000;
+export const REFRESH_MS = 1000;
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { Accept: "application/json" } });
@@ -11,7 +11,7 @@ async function getJson<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-const live = { refetchInterval: REFRESH_MS, staleTime: 2000, retry: 1 } as const;
+const live = { refetchInterval: REFRESH_MS, staleTime: 500, retry: 1 } as const;
 
 export function useOverview() {
   return useQuery({ queryKey: ["overview"], queryFn: () => getJson<Overview>("/api/v1/overview"), ...live });

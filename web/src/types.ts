@@ -63,6 +63,7 @@ export interface Node {
   last_received_ts: number;
   last_measured_ts: number;
   age_s: number;
+  report_interval_s: number | null;
   boot_id: string;
   driver_version: string | null;
   cuda_version: string | null;

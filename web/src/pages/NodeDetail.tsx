@@ -55,6 +55,9 @@ export default function NodeDetail() {
           <div>
             <span>시계 오차</span> {n.clock_skew_s.toFixed(1)}s{n.clock_skew_flag && " (수신 시각 사용)"}
           </div>
+          <div>
+            <span>보고 주기</span> {n.report_interval_s === null ? "—" : `${n.report_interval_s}초`}
+          </div>
         </div>
       </section>
 
