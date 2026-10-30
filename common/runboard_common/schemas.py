@@ -67,6 +67,11 @@ class NodeInfo(BaseModel):
     cuda_version: str | None = None
     agent_version: str
     measured_ts: float = Field(description="에이전트가 수집한 시각 (epoch)")
+    report_interval_s: float | None = Field(
+        default=None,
+        gt=0,
+        description="다음 보고까지의 최대 간격(초). 동작 중 1초, 유휴 30초. 서버는 연결 판정에 더한다",
+    )
     cpu_percent: float | None = None
     mem_used_mb: int | None = None
     mem_total_mb: int | None = None
@@ -82,7 +87,10 @@ class ReportError(BaseModel):
 
 
 class NodeReport(BaseModel):
-    """에이전트가 5초마다 보내는 보고 1건. 항상 노드의 최신 상태 전체다."""
+    """에이전트가 보내는 보고 1건. 항상 노드의 최신 상태 전체다.
+
+    주기는 적응형이다: GPU 동작 중 1초, 유휴 30초 (에이전트 설정). 그 값을 node.report_interval_s 에 적는다.
+    """
 
     schema_version: int = SCHEMA_VERSION
     node: NodeInfo

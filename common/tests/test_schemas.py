@@ -127,3 +127,13 @@ def test_rejects_invalid_values(path, bad):
     target[path[-1]] = bad
     with pytest.raises(ValidationError):
         NodeReport.model_validate(data)
+
+
+def test_report_interval_is_optional_and_positive():
+    data = json.loads(json.dumps(PLAN_EXAMPLE))
+    assert NodeReport.model_validate(data).node.report_interval_s is None, "옛 에이전트는 안 보낸다"
+    data["node"]["report_interval_s"] = 30
+    assert NodeReport.model_validate(data).node.report_interval_s == 30.0
+    data["node"]["report_interval_s"] = 0
+    with pytest.raises(ValidationError):
+        NodeReport.model_validate(data)
