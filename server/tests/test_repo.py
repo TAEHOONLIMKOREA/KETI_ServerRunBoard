@@ -41,6 +41,12 @@ def test_ingest_persists_and_restores(config, fake_report):
     # 재시작: 열린 것만 복원, 전부 unknown 으로 시작
     fresh = Engine(config, repo, clock=lambda: BASE + 60)
     fresh.restore()
+    node = fresh.state.nodes["fake01"]
+    assert node.conn_status == "offline" and len(node.gpus) == 8, "노드는 비활성화로 남는다"
+    ddp = next(g.report for g in node.gpus.values() if g.report.index == 0)
+    assert ddp.mem_used_mb == 65_000 and ddp.mem_total_mb == 81920, "마지막 샘플 값으로 채운다"
+    summary = fresh.overview(now=BASE + 100).summary
+    assert summary.nodes == 1 and summary.nodes_offline == 1
     restored = fresh.tracker.open_sessions()
     assert len(restored) == 7 and {s.status for s in restored} == {"unknown"}
     assert len(fresh.tracker.open_workloads()) == 5

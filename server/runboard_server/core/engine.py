@@ -66,11 +66,16 @@ class Engine:
     def restore(self) -> None:
         if self.repo is None:
             return
+        nodes = self.repo.load_nodes()
         workloads, sessions = self.repo.load_open()
         with self.lock:
+            self.state.restore(nodes)
             self.tracker.restore(workloads, sessions)
         log.info(
-            "복원: 열린 작업 %d, 세션 %d (모두 미확인으로 시작)", len(workloads), len(sessions)
+            "복원: 노드 %d (비활성화로 시작), 열린 작업 %d, 세션 %d (모두 미확인으로 시작)",
+            len(nodes),
+            len(workloads),
+            len(sessions),
         )
 
     def ingest(self, report: NodeReport, received_ts: float | None = None) -> None:

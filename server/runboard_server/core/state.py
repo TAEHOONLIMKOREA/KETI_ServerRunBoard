@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from runboard_common.schemas import GpuReport, NodeInfo, NodeReport, ReportError
@@ -50,6 +51,11 @@ class StateStore:
     def __init__(self, util_history_s: float = 120.0) -> None:
         self.nodes: dict[str, NodeState] = {}
         self.util_history_s = util_history_s
+
+    def restore(self, nodes: Iterable[NodeState]) -> None:
+        """재시작 복원. 이미 보고한 노드는 덮어쓰지 않는다."""
+        for node in nodes:
+            self.nodes.setdefault(node.info.name, node)
 
     def update(
         self,

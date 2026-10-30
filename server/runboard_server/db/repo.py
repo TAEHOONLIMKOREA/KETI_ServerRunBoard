@@ -15,8 +15,9 @@ from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from runboard_common.schemas import GpuReport, NodeInfo
 from runboard_server.core.sessions import Session, Workload
-from runboard_server.core.state import NodeState
+from runboard_server.core.state import GpuState, NodeState
 from runboard_server.db.models import (
     Base,
     GpuRow,
@@ -122,6 +123,58 @@ class Repository:
                 db.merge(WorkloadRow(**{f: getattr(w, f) for f in _WORKLOAD_FIELDS}))
             for s in sessions:
                 db.merge(SessionRow(**{f: getattr(s, f) for f in _SESSION_FIELDS}))
+
+    def load_nodes(self) -> list[NodeState]:
+        """재시작 복원용: 알려진 노드 전부. GPU 는 마지막 샘플 값으로 채우고 연결 상태는 끊김으로 둔다.
+
+        에이전트가 한 번이라도 보고한 노드는 서버가 재시작돼도 사라지지 않고 '비활성화' 로 남는다.
+        """
+        out: list[NodeState] = []
+        with self._sessions() as db:
+            for n in db.scalars(select(NodeRow).order_by(NodeRow.name)).all():
+                info = NodeInfo(
+                    name=n.name,
+                    ip=n.ip,
+                    boot_id=n.boot_id or "unknown",
+                    driver_version=n.driver_version,
+                    cuda_version=n.cuda_version,
+                    agent_version=n.agent_version or "?",
+                    measured_ts=n.last_measured_ts,
+                )
+                node = NodeState(
+                    info=info,
+                    first_seen=n.first_seen,
+                    received_ts=n.last_received_ts,
+                    measured_ts=n.last_measured_ts,
+                    ts=n.last_measured_ts,
+                    clock_skew_s=n.clock_skew_s,
+                    conn_status="offline",
+                )
+                gpu_rows = db.scalars(
+                    select(GpuRow).where(GpuRow.node_name == n.name).order_by(GpuRow.index)
+                ).all()
+                for g in gpu_rows:
+                    s = db.scalars(
+                        select(GpuSampleRow)
+                        .where(GpuSampleRow.gpu_uuid == g.uuid)
+                        .order_by(GpuSampleRow.ts.desc())
+                        .limit(1)
+                    ).first()
+                    report = GpuReport(
+                        index=g.index,
+                        uuid=g.uuid,
+                        name=g.name,
+                        mem_total_mb=g.memory_total_mb,
+                        mem_used_mb=s.mem_used_mb if s else None,
+                        util_gpu=s.util_gpu if s else None,
+                        util_mem=s.util_mem if s else None,
+                        temp_c=s.temp_c if s else None,
+                        power_w=s.power_w if s else None,
+                        mig_enabled=g.mig_enabled,
+                    )
+                    node.gpus[g.uuid] = GpuState(report=report, first_seen=g.first_seen)
+                out.append(node)
+        return out
 
     def load_open(self) -> tuple[list[Workload], list[Session]]:
         """재시작 복원용: 끝나지 않은 작업·세션."""
