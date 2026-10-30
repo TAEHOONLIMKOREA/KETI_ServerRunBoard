@@ -11,9 +11,9 @@ const ACT: Record<string, string> = { active: "연산 중", low: "낮은 활동"
 const HLTH: Record<string, string> = { ok: "정상", temp_warn: "온도 경고", collect_error: "수집 오류" };
 
 export default function NodeDetail() {
-  const { name = "" } = useParams();
-  const node = useNode(name);
-  const workloads = useWorkloads({ node: name });
+  const { name: key = "" } = useParams(); // 경로의 :name 은 노드 식별자(key)
+  const node = useNode(key);
+  const workloads = useWorkloads({ node: key });
 
   if (node.isLoading) return <Loading />;
   if (node.error) return <ErrorBox error={node.error} />;
@@ -23,7 +23,8 @@ export default function NodeDetail() {
   return (
     <>
       <div className="controls">
-        <h1 style={{ margin: 0 }}>{n.name}</h1>
+        <h1 style={{ margin: 0 }}>{n.display_name}</h1>
+        <span className="muted">{n.hostname}</span>
         <span className="meta">
           <ConnDot status={n.conn_status} />
         </span>
@@ -33,6 +34,12 @@ export default function NodeDetail() {
 
       <section className="card">
         <div className="kv">
+          <div>
+            <span>호스트명</span> {n.hostname}
+          </div>
+          <div>
+            <span>식별자</span> <span className="mono">{n.key}</span>
+          </div>
           <div>
             <span>IP</span> {n.ip ?? "—"}
           </div>

@@ -27,7 +27,7 @@ export default function WorkloadDetail() {
             <span>소유자</span> <OwnerCell w={w} />
           </div>
           <div>
-            <span>노드</span> <Link to={`/nodes/${encodeURIComponent(w.node)}`}>{w.node}</Link>
+            <span>노드</span> <Link to={`/nodes/${encodeURIComponent(w.node)}`}>{w.node_display}</Link>
           </div>
           <div>
             <span>GPU</span> <span className="mono">{w.gpu_indexes.map((i) => `[${i}]`).join(" ") || "—"}</span>

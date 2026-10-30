@@ -62,7 +62,7 @@ export function WorkloadTable({ workloads, showNode = true }: { workloads: Workl
               </td>
               {showNode && (
                 <td>
-                  <Link to={`/nodes/${encodeURIComponent(w.node)}`}>{w.node}</Link>
+                  <Link to={`/nodes/${encodeURIComponent(w.node)}`}>{w.node_display}</Link>
                 </td>
               )}
               <td className="mono">{w.gpu_indexes.map((i) => `[${i}]`).join(" ")}</td>

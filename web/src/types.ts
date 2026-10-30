@@ -58,7 +58,10 @@ export interface Gpu {
 }
 
 export interface Node {
-  name: string;
+  key: string;
+  display_name: string;
+  hostname: string;
+  node_id: string | null;
   ip: string | null;
   conn_status: ConnStatus;
   last_received_ts: number;
@@ -123,6 +126,7 @@ export interface Workload {
   id: string;
   key: string;
   node: string;
+  node_display: string;
   type: WorkloadType;
   name: string;
   owner: string | null;

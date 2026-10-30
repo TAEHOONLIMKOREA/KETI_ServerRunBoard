@@ -10,7 +10,9 @@ import type { Gpu, Node } from "../types";
 function matchSearch(node: Node, g: Gpu, q: string): boolean {
   if (!q) return true;
   const hay = [
-    node.name,
+    node.display_name,
+    node.hostname,
+    node.key,
     ...g.workloads.flatMap((w) => [
       w.name,
       w.owner,
@@ -66,7 +68,7 @@ export default function Dashboard() {
       ) : (
         <div className="node-grid">
           {cards.map(({ node, gpus }) => (
-            <NodeCard key={node.name} node={node} gpus={gpus} />
+            <NodeCard key={node.key} node={node} gpus={gpus} />
           ))}
         </div>
       )}

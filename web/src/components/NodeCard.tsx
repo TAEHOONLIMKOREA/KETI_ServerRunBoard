@@ -22,8 +22,8 @@ export function NodeCard({ node, gpus }: { node: Node; gpus: Gpu[] }) {
   return (
     <section className={`card ${offline ? "offline" : ""}`}>
       <div className="node-head">
-        <Link to={`/nodes/${encodeURIComponent(node.name)}`} className="name">
-          {node.name}
+        <Link to={`/nodes/${encodeURIComponent(node.key)}`} className="name">
+          {node.display_name}
         </Link>
         <span className="meta">
           <ConnDot status={node.conn_status} />
@@ -36,6 +36,7 @@ export function NodeCard({ node, gpus }: { node: Node; gpus: Gpu[] }) {
           {model} ×{node.gpu_count}
           {node.gpu_count > 0 && ` · 빈 GPU ${node.free_gpu_count}`}
         </span>
+        <span>호스트명 {node.hostname}</span>
         <span>IP {node.ip ?? "—"}</span>
         <span>
           드라이버 {node.driver_version ?? "—"} / CUDA {node.cuda_version ?? "—"}
