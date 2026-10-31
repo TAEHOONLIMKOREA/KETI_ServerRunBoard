@@ -8,10 +8,25 @@ from __future__ import annotations
 
 from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class Clipped(TypeDecorator):
+    """길이를 넘는 문자열을 잘라서 쓰는 VARCHAR(n).
+
+    PostgreSQL 은 길이를 넘는 값이 하나라도 있으면 그 트랜잭션 전체를 거부한다.
+    컨테이너 이름·이미지·라벨처럼 에이전트가 길이 제한 없이 보내는 표시용 열에만 쓴다. 식별자 열은 자르지 않는다.
+    """
+
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return value[: self.impl.length] if value else value
 
 
 class NodeRow(Base):
@@ -74,13 +89,13 @@ class WorkloadRow(Base):
     key: Mapped[str] = mapped_column(String(160), index=True)
     node: Mapped[str] = mapped_column(String(64), index=True)
     type: Mapped[str] = mapped_column(String(16))
-    name: Mapped[str] = mapped_column(String(200))
+    name: Mapped[str] = mapped_column(Clipped(200))
     container_id: Mapped[str | None] = mapped_column(String(80))
-    container_name: Mapped[str | None] = mapped_column(String(200))
-    image: Mapped[str | None] = mapped_column(String(300))
-    project: Mapped[str | None] = mapped_column(String(100))
-    job: Mapped[str | None] = mapped_column(String(100))
-    owner: Mapped[str | None] = mapped_column(String(64))
+    container_name: Mapped[str | None] = mapped_column(Clipped(200))
+    image: Mapped[str | None] = mapped_column(Clipped(300))
+    project: Mapped[str | None] = mapped_column(Clipped(100))  # 라벨 값
+    job: Mapped[str | None] = mapped_column(Clipped(100))  # 라벨 값
+    owner: Mapped[str | None] = mapped_column(Clipped(64))  # 미등록 라벨 소유자는 원문 그대로 온다
     owner_source: Mapped[str] = mapped_column(String(16), default="none")
     service_name: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(16))

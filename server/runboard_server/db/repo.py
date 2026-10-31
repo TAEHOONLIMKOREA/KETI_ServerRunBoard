@@ -1,6 +1,6 @@
 """저장소 계층. 엔진은 이 클래스만 알고 SQLAlchemy 를 모른다 (PLAN 4.2 'repository 패턴').
 
-SQLite 기본. URL 만 바꾸면 PostgreSQL 로 간다.
+PostgreSQL 전용이다. 접속 정보는 settings.ini 에 있고, 테스트는 RUNBOARD_TEST_DB_URL 의 서버에 임시 DB 를 만든다.
 """
 
 from __future__ import annotations
@@ -8,12 +8,10 @@ from __future__ import annotations
 import dataclasses
 import logging
 from collections.abc import Iterable
-from pathlib import Path
 
-from sqlalchemy import create_engine, event, func, inspect, select, text
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from runboard_common.schemas import GpuReport, NodeInfo
 from runboard_server.core.sessions import Session, Workload
@@ -36,24 +34,8 @@ _SESSION_FIELDS = [f.name for f in dataclasses.fields(Session) if f.name != "dir
 class Repository:
     def __init__(self, db_url: str) -> None:
         self.db_url = db_url
-        kwargs: dict = {}
-        if db_url.startswith("sqlite"):
-            kwargs["connect_args"] = {"check_same_thread": False}
-            if db_url in ("sqlite://", "sqlite:///:memory:"):
-                kwargs["poolclass"] = StaticPool
-            else:
-                path = db_url.removeprefix("sqlite:///")
-                Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.engine = create_engine(db_url, future=True, **kwargs)
-        if db_url.startswith("sqlite"):
-
-            @event.listens_for(self.engine, "connect")
-            def _pragmas(dbapi_conn, _record):  # pragma: no cover - 드라이버 콜백
-                cursor = dbapi_conn.cursor()
-                cursor.execute("PRAGMA journal_mode=WAL")
-                cursor.execute("PRAGMA synchronous=NORMAL")
-                cursor.close()
-
+        # DB 가 재시작하면 풀의 연결이 끊겨 있다. 꺼낼 때 확인해서 저장이 한 번 실패하는 것을 막는다
+        self.engine = create_engine(db_url, future=True, pool_pre_ping=True)
         Base.metadata.create_all(self.engine)
         self._add_missing_columns()
         self._sessions = sessionmaker(self.engine, expire_on_commit=False)

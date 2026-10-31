@@ -2,7 +2,7 @@
 # MVP 동안은 관리 페이지(v0.3) 대신 이 파일로 노드 토큰·사용자·매핑을 관리한다 (docs/IMPLEMENTATION.md 1장).
 
 server:
-  db_url: sqlite:///data/runboard.db   # PostgreSQL 로 바꾸려면 URL 만 변경
+  # DB 접속 정보는 여기 두지 않는다. 레포 루트의 settings.ini 에서 읽는다
   persist_interval_s: 30               # 샘플을 DB 에 쓰는 간격. 에이전트 보고는 동작 중 1초·유휴 30초지만 저장은 30초
   web_dist: web/dist                   # 빌드된 프론트. 없으면 API 만 제공
   host: 0.0.0.0

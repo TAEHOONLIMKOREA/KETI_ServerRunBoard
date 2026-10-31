@@ -55,9 +55,8 @@ def create_app(
     async def lifespan(app: FastAPI):
         engine.restore()
         task = asyncio.create_task(_ticker(engine, TICK_INTERVAL_S)) if start_scheduler else None
-        log.info(
-            "RunBoard server %s 시작 (db=%s)", __version__, cfg.server.db_url if repo else "없음"
-        )
+        db = repo.engine.url.render_as_string(hide_password=True) if repo else "없음"
+        log.info("RunBoard server %s 시작 (db=%s)", __version__, db)
         try:
             yield
         finally:
@@ -116,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         cfg = load_server_config(args.config)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:  # 값 누락·YAML 검증 실패는 ValueError
         log.error("%s", exc)
         return 2
 

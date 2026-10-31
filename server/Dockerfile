@@ -15,10 +15,10 @@ COPY server/ ./server/
 RUN pip install --no-cache-dir ./common ./server
 COPY --from=web /web/dist ./web/dist
 
+# DB 접속 정보는 /config/settings.ini 로 마운트한다 (git·이미지에 넣지 않는다). 없으면 서버가 시작하지 않는다
 ENV RUNBOARD_WEB_DIST=/app/web/dist \
-    RUNBOARD_DB_URL=sqlite:////data/runboard.db \
     RUNBOARD_CONFIG=/config/runboard.yaml \
+    RUNBOARD_SETTINGS=/config/settings.ini \
     PYTHONUNBUFFERED=1
-VOLUME ["/data"]
 EXPOSE 8000
 CMD ["runboard-server", "--host", "0.0.0.0", "--port", "8000"]

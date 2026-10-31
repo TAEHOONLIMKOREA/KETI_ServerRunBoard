@@ -1,12 +1,10 @@
 .git
 .venv
-data
 web/node_modules
 web/dist
 **/__pycache__
 **/*.pyc
 **/.pytest_cache
 **/.ruff_cache
-*.db
-*.db-wal
-*.db-shm
+**/settings.ini
+deploy/runboard.yaml
