@@ -112,3 +112,13 @@ def test_display_name(resolver):
 def test_color_slot_follows_users_order(resolver):
     assert [resolver.color_slot(u) for u in ("taehoon", "minsu", "jihye")] == [0, 1, 2]
     assert resolver.color_slot("someone") is None and resolver.color_slot(None) is None
+
+
+def test_container_from_docker_proxy_is_not_guessed_by_name(resolver):
+    """에이전트 docker-proxy 가 실행 계정을 붙인 컨테이너는 이름 규칙을 쓰지 않는다."""
+    stamped = {"runboard.launcher": "th", "runboard.owner": "th"}
+    d = resolver.classify(proc(container=container("minsu_dev", stamped)), "gpu01")
+    assert (d.owner, d.source) == ("taehoon", "label"), "이름(minsu)이 아니라 실행 계정"
+    by_root = {"runboard.launcher": "root"}
+    d = resolver.classify(proc(container=container("minsu_dev", by_root)), "gpu01")
+    assert (d.owner, d.source) == (None, "none"), "root 가 띄운 컨테이너는 이름으로 짐작하지 않는다"

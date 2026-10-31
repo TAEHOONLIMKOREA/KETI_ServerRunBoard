@@ -9,8 +9,9 @@
   3. 그 외 → personal
 
 소유자 판정 순서 (먼저 맞는 규칙이 이긴다)
-  1. 컨테이너 라벨 runboard.owner
-  2. 컨테이너명 규칙 <user>_<용도>. user 가 등록된 사용자·별칭일 때만
+  1. 컨테이너 라벨 runboard.owner. 노드에 Docker 소켓 중계가 있으면 중계가 실행 계정으로 덮어쓴 값이다
+  2. 컨테이너명 규칙 <user>_<용도>. user 가 등록된 사용자·별칭일 때만.
+     중계를 거친 컨테이너(runboard.launcher 라벨)에는 쓰지 않는다
   3. 공용 서비스면 레지스트리의 담당자
   4. 계정 매핑: (노드, uid) → 사용자. 없으면 (모든 노드, uid). 그것도 없으면
      실행 계정명이 등록된 사용자·별칭과 같을 때. uid 0(root) 은 명시적 매핑이 있을 때만
@@ -24,7 +25,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from runboard_common.schemas import ProcessReport
+from runboard_common.schemas import LAUNCHER_LABEL, ProcessReport
 from runboard_server.config import OwnerRules
 from runboard_server.registry import Registry, ServiceEntry
 
@@ -172,7 +173,15 @@ class OwnerResolver:
         if label_owner:
             return self.canonical(label_owner) or label_owner, "label"
 
-        if proc.container is not None and proc.container.name and self._container_rule:
+        # 노드의 Docker 소켓 중계(에이전트 docker-proxy)를 거친 컨테이너는 실행 계정을 이미 안다.
+        # 그런데도 소유자 라벨이 없으면 root 나 서비스가 띄운 것이라 이름으로 짐작하지 않는다
+        by_proxy = LAUNCHER_LABEL in labels
+        if (
+            proc.container is not None
+            and proc.container.name
+            and self._container_rule
+            and not by_proxy
+        ):
             match = self._container_rule.match(proc.container.name)
             if match:
                 user = self.canonical(match.groupdict().get("user") or match.group(0))
