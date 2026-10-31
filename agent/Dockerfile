@@ -4,7 +4,7 @@
 #   docker run -d --name runboard-agent --restart unless-stopped \
 #     --gpus all --pid=host \
 #     -v /var/run/docker.sock:/var/run/docker.sock:ro \
-#     -e RUNBOARD_SERVER=https://runboard.internal -e RUNBOARD_TOKEN=<NODE_TOKEN> \
+#     -e RUNBOARD_SERVER=http://<서버 주소>:55400 -e RUNBOARD_TOKEN=<NODE_TOKEN> \
 #     -e RUNBOARD_NODE_NAME=$(hostname) -e RUNBOARD_NODE_ID=$(cat /etc/machine-id) \
 #     runboard-agent
 # 컨테이너 안의 hostname 은 컨테이너 ID 라서 RUNBOARD_NODE_NAME 을 꼭 넘긴다.

@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="수집·보고 루프 실행")
     run.add_argument("--config", type=Path, help=f"TOML 설정 파일 (기본 {DEFAULT_CONFIG_PATH})")
-    run.add_argument("--server", help="서버 URL. 예: https://runboard.internal")
+    run.add_argument("--server", help="서버 URL. 예: http://<서버 주소>:55400")
     run.add_argument("--token", help="노드 토큰")
     run.add_argument("--node", dest="node_name", help="노드 이름 (기본 hostname)")
     run.add_argument(

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # RunBoard 에이전트 설치 (Ubuntu/Debian 계열, root 로 실행).
 #
-#   sudo bash deploy/install-agent.sh --server https://runboard.internal --token <NODE_TOKEN> [--node gpu01]
+#   sudo bash deploy/install-agent.sh --server http://<서버 주소>:55400 --token <NODE_TOKEN> [--node gpu01]
 #
 # 하는 일: 전용 계정 runboard 생성 → /opt/runboard/venv 에 에이전트 설치 → /etc/runboard/agent.toml 작성
 #          → systemd 유닛 등록·시작. 몇 초 뒤 대시보드에 노드가 나타난다.

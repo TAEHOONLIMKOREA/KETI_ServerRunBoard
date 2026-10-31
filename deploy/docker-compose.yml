@@ -1,7 +1,9 @@
 # 중앙 서버 배포.  deploy/ 에서:
 #   cp runboard.example.yaml runboard.yaml   # 토큰·사용자·서비스 수정
 #   docker compose up -d --build
-# 내부망에서 HTTP 로만 쓰려면 caddy 를 지우고 server 에 ports: ["8000:8000"] 를 연다.
+# HTTP 만 쓴다 (HTTPS 없음). 대시보드·API: http://<서버>:55400, 에이전트 --server 도 이 주소.
+# 공유기(NAT) 뒤에서 외부 접속을 받으려면 공유기에 외부 55400 → 이 서버 55400 (TCP) 포트포워딩을 추가한다.
+# DB 는 Postgres compose(프로젝트 postgres)의 postgres 컨테이너다. 그 스택을 먼저 띄워 postgres_default 네트워크가 있어야 한다.
 services:
   server:
     build:
@@ -11,24 +13,13 @@ services:
     restart: unless-stopped
     volumes:
       - ./runboard.yaml:/config/runboard.yaml:ro
-      - runboard-data:/data
-    expose:
-      - "8000"
-
-  caddy:
-    image: caddy:2
-    restart: unless-stopped
+      - ../settings.ini:/config/settings.ini:ro   # DB 접속 정보. host 는 컨테이너 이름, port 는 내부 포트
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - server
+      - "55400:8000"   # 호스트 55400 → 컨테이너 8000. 모든 인터페이스에 열린다
+    networks:
+      - postgres
 
-volumes:
-  runboard-data: {}
-  caddy-data: {}
-  caddy-config: {}
+networks:
+  postgres:
+    external: true
+    name: postgres_default

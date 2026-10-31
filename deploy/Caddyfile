@@ -1,7 +1,0 @@
-# 내부망 도메인으로 HTTPS 종단. tls internal 은 Caddy 자체 CA 로 발급한다 (브라우저에 CA 신뢰 등록 필요).
-# 공인 도메인과 외부 접근이 가능하면 tls internal 줄을 지우면 Let's Encrypt 를 쓴다.
-runboard.internal {
-    tls internal
-    encode gzip
-    reverse_proxy server:8000
-}
