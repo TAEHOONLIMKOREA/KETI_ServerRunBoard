@@ -5,7 +5,10 @@
 #
 # 하는 일: 전용 계정 runboard 생성 → /opt/runboard/venv 에 에이전트 설치 → /etc/runboard/agent.toml 작성
 #          → systemd 유닛 등록·시작. 몇 초 뒤 대시보드에 노드가 나타난다.
+#          이미 설치한 노드는 --server·--token 없이 다시 돌리면 설정은 두고 패키지만 갱신한다.
+#          Docker 소켓 중계까지 설치하려면 deploy/start-agent.sh 를 쓴다 (이 스크립트를 부른다).
 # 옵션:   --source <레포 경로>  (기본: 이 스크립트가 있는 레포)   --prefix /opt/runboard   --python python3
+#         --no-start  설치만 하고 시작하지 않는다
 set -euo pipefail
 
 SERVER=""
@@ -14,9 +17,10 @@ NODE="$(hostname -s)"
 PREFIX="/opt/runboard"
 PYTHON="python3"
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+START=1
 
 usage() {
-  sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -27,12 +31,13 @@ while [[ $# -gt 0 ]]; do
     --source) SOURCE="$2"; shift 2 ;;
     --prefix) PREFIX="$2"; shift 2 ;;
     --python) PYTHON="$2"; shift 2 ;;
+    --no-start) START=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "알 수 없는 옵션: $1" >&2; usage; exit 2 ;;
   esac
 done
 
-if [[ -z "$SERVER" || -z "$TOKEN" ]]; then
+if [[ ( -z "$SERVER" || -z "$TOKEN" ) && ! -f /etc/runboard/agent.toml ]]; then
   usage
   exit 2
 fi
@@ -90,9 +95,16 @@ echo "[4/4] systemd"
 install -m 644 "$SOURCE/agent/systemd/runboard-agent.service" /etc/systemd/system/runboard-agent.service
 sed -i "s#/opt/runboard/venv#$PREFIX/venv#g" /etc/systemd/system/runboard-agent.service
 systemctl daemon-reload
+if (( ! START )); then
+  systemctl enable runboard-agent
+  echo "      설치만 했다 (--no-start)"
+  exit 0
+fi
 systemctl enable --now runboard-agent
 sleep 2
 systemctl --no-pager --lines=5 status runboard-agent || true
 echo
 echo "완료. 로그: journalctl -u runboard-agent -f"
-echo "확인: curl -s $SERVER/api/v1/nodes | grep -o '\"name\":\"$NODE\"'"
+if [[ -n "$SERVER" ]]; then
+  echo "확인: curl -s $SERVER/api/v1/nodes | grep -o '\"name\":\"$NODE\"'"
+fi
