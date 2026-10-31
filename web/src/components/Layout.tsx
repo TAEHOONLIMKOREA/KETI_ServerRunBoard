@@ -1,5 +1,6 @@
-import { Link, Outlet, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate, useSearchParams } from "react-router-dom";
 import { useOverview } from "../api";
+import { NoticeBanner } from "./Notices";
 
 /** 상단 헤더 한 줄: 제목, 검색창, 연결된 노드 수. 검색어는 URL ?q= 로 대시보드에 전달한다. */
 export default function Layout() {
@@ -30,7 +31,11 @@ export default function Layout() {
           연결된 노드 <b>{connected ?? "—"}</b>
           {data && <span className="muted"> / {data.summary.nodes}</span>}
         </span>
+        <NavLink to="/admin" className="navlink">
+          관리
+        </NavLink>
       </header>
+      <NoticeBanner notices={data?.notices ?? []} />
       <Outlet />
     </div>
   );

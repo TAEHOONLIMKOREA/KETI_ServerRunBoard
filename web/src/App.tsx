@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
+import Admin from "./pages/Admin";
 import Dashboard from "./pages/Dashboard";
 import NodeDetail from "./pages/NodeDetail";
 import UserDetail from "./pages/UserDetail";
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/users" element={<Users />} />
         <Route path="/users/:username" element={<UserDetail />} />
         <Route path="/workloads/:id" element={<WorkloadDetail />} />
+        <Route path="/admin" element={<Admin />} />
         <Route path="*" element={<div className="empty">페이지가 없습니다.</div>} />
       </Route>
     </Routes>

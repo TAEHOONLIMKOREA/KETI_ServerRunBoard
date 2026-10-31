@@ -1,4 +1,4 @@
-import type { ConnStatus, WorkloadType } from "./types";
+import type { ConnStatus, NoticeLevel, WorkloadType } from "./types";
 
 export function fmtElapsed(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
@@ -42,6 +42,20 @@ export function fmtGbHours(v: number): string {
   return `${v.toFixed(v >= 100 ? 0 : 1)} GB·h`;
 }
 
+const stampFormat = new Intl.DateTimeFormat("ko-KR", {
+  month: "numeric",
+  day: "numeric",
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** "11. 2. (월) 14:05" */
+export function fmtStamp(ts: number): string {
+  return stampFormat.format(ts * 1000);
+}
+
 export const typeLabel: Record<WorkloadType, string> = {
   personal: "개인",
   container: "컨테이너",
@@ -52,6 +66,11 @@ export const connLabel: Record<ConnStatus, string> = {
   online: "정상",
   delayed: "지연",
   offline: "비활성화",
+};
+
+export const noticeLevelLabel: Record<NoticeLevel, string> = {
+  info: "안내",
+  warning: "주의",
 };
 
 export const sourceLabel: Record<string, string> = {
@@ -73,6 +92,7 @@ export const endedReasonLabel: Record<string, string> = {
   lost_while_offline: "끊김 중 사라짐",
   node_rebooted: "노드 재부팅",
   node_offline_timeout: "끊김 24시간 초과",
+  node_removed: "노드 삭제",
 };
 
 export const WARN_BADGES = new Set(["유휴 의심", "온도", "수집 오류", "미확인", "미확인 소유자", "지연"]);

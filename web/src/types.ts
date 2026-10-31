@@ -83,6 +83,20 @@ export interface Node {
   gpus: Gpu[];
 }
 
+/** 관리용 노드 목록 한 줄 (/api/v1/admin/nodes, runboard-server nodes list). GPU 는 수만. */
+export interface NodeBrief {
+  key: string;
+  display_name: string;
+  hostname: string;
+  node_id: string | null;
+  seq: number | null; // 처음 본 순서. 목록은 이 순서
+  ip: string | null;
+  gpu_count: number;
+  conn_status: ConnStatus;
+  last_received_ts: number;
+  age_s: number;
+}
+
 export interface Summary {
   nodes: number;
   nodes_offline: number;
@@ -92,10 +106,21 @@ export interface Summary {
   workloads: number;
 }
 
+export type NoticeLevel = "info" | "warning";
+
+/** 헤더 아래 공지 한 줄. */
+export interface Notice {
+  id: number;
+  text: string;
+  level: NoticeLevel;
+  until: number | null; // epoch 초. 지나면 내려간다. null 이면 지울 때까지
+}
+
 export interface Overview {
   generated_ts: number;
   summary: Summary;
   nodes: Node[];
+  notices: Notice[]; // 기한 전인 것만. 주의가 먼저, 같은 수준은 먼저 등록한 것부터
 }
 
 export interface Session {
@@ -177,3 +202,52 @@ export interface UserDetail {
 }
 
 export const UNKNOWN_USER = "_unknown";
+
+// 관리 API (/api/v1/admin). server/runboard_server/registry.py 와 맞춘다.
+
+export interface UserFields {
+  display_name: string | null;
+  email: string | null;
+  slack_id: string | null;
+  aliases: string[];
+}
+
+export interface AdminUser extends UserFields {
+  username: string;
+}
+
+export interface MappingFields {
+  node: string | null; // 노드 식별자·호스트명·화면 이름. null 이면 모든 노드
+  uid: number;
+  username: string;
+}
+
+export interface AccountMapping extends MappingFields {
+  id: number;
+}
+
+export interface ServiceFields {
+  name: string;
+  match_exec_account: string | null;
+  match_container_pattern: string | null;
+  match_image_pattern: string | null;
+  owner: string | null;
+  idle_exempt: boolean;
+}
+
+export interface ServiceEntry extends ServiceFields {
+  id: number;
+}
+
+// 공지 (/api/v1/admin/notices). server/runboard_server/notices.py 와 맞춘다.
+
+export interface NoticeFields {
+  text: string; // 한 줄, 200자 이하
+  level: NoticeLevel;
+  until: number | null; // epoch 초. 지난 시각이면 바로 내려간다
+}
+
+export interface NoticeEntry extends NoticeFields {
+  id: number;
+  created_ts: number; // 등록 시각. 고쳐도 바뀌지 않는다
+}

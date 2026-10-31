@@ -25,6 +25,12 @@
   --series-free: #0ca30c; /* 빈 GPU: 상태색 good */
   --series-neutral: #898781; /* 공용 서비스, 9번째 이후 사용자, 미확인(빗금) */
   --tint: 12%; /* 행 배경에 섞는 소유자 색 비율 */
+  /* 공지 배너 (Notices.tsx). 칩·왼쪽 테두리는 수준 색에 카드색 글자, 줄 바탕은 수준 색을 카드색에 --notice-tint 만큼.
+     칩 글자 대비 안내 5.2, 주의 5.0. 옅은 바탕에서 --muted 는 4.3 이라 기한 글자는 조금 진한 회색 (5.2) */
+  --notice-info: var(--accent);
+  --notice-warn: #b45309;
+  --notice-tint: 8%;
+  --notice-muted: #5f6673;
 }
 
 /* 테마는 OS 설정을 따른다 (다크). 카드 배경 #171a21 에 대해 검증한 다크 범주색 */
@@ -53,6 +59,11 @@
     --series-7: #9085e9;
     --series-8: #e66767;
     --tint: 20%;
+    /* 공지: 칩 글자(어두운 카드색) 대비 안내 6.9, 주의 8.1. 어두운 바탕은 더 섞어야 보이고 기한 글자는 --muted 로 5.6 */
+    --notice-info: var(--accent);
+    --notice-warn: #f59e0b;
+    --notice-tint: 12%;
+    --notice-muted: var(--muted);
   }
 }
 
@@ -119,6 +130,55 @@ a:hover {
   background: var(--card);
   color: var(--text);
   font: inherit;
+}
+
+/* ---------- 공지 배너: 헤더 바로 아래, 모든 화면. 공지마다 한 줄이고 긴 글은 줄을 바꾼다 ---------- */
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.notice,
+.notice-level {
+  --notice: var(--notice-info);
+}
+.notice.warning,
+.notice-level.warning {
+  --notice: var(--notice-warn);
+}
+.notice {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 12px 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--notice) 30%, var(--border));
+  border-left: 4px solid var(--notice);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--notice) var(--notice-tint), var(--card));
+}
+.notice-text {
+  min-width: 0;
+  word-break: keep-all; /* 한글 낱말 가운데서 줄을 바꾸지 않는다. 긴 주소처럼 끊을 곳이 없으면 아무 데서나 */
+  overflow-wrap: anywhere;
+}
+.notice-until {
+  color: var(--notice-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.notice-level {
+  display: inline-block;
+  flex: none;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--notice);
+  color: var(--card);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
 }
 
 /* ---------- controls (상세 페이지 제목 줄) ---------- */
@@ -457,4 +517,190 @@ h2 {
   color: var(--muted);
   padding: 30px 0;
   text-align: center;
+}
+
+/* ---------- 관리 (/admin): 헤더 링크, 탭, 폼, 버튼 ---------- */
+.navlink {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.navlink[aria-current="page"] {
+  color: var(--text);
+  font-weight: 600;
+}
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.tabs button {
+  padding: 6px 12px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.tabs button[aria-selected="true"] {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.form {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px 12px;
+  margin-bottom: 12px;
+  scroll-margin-top: 12px;
+}
+.form-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px 12px;
+  align-items: start;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.field small {
+  font-size: 11px;
+}
+.field.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding-top: 18px;
+  color: var(--text);
+}
+.field input,
+.field select,
+.inline-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.field input.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.field.check input {
+  width: auto;
+}
+.field.wide {
+  grid-column: 1 / -1;
+}
+.field.span-2 {
+  grid-column: span 2;
+}
+/* 한 칸짜리 격자(폼 안쪽 392px 미만)에서 두 칸을 잡으면 폼이 옆으로 넘친다 */
+@media (max-width: 480px) {
+  .field.span-2 {
+    grid-column: auto;
+  }
+}
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.field-row input {
+  flex: 0 1 240px;
+}
+.field-row .btn {
+  flex: none;
+}
+.field input:disabled {
+  color: var(--muted);
+  background: var(--bg);
+}
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.form-error {
+  color: var(--red);
+  font-size: 12px;
+  margin: 4px 0;
+}
+.btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--card);
+  font-weight: 600;
+}
+.btn.danger {
+  color: var(--red);
+}
+.btn.small {
+  padding: 1px 8px;
+  font-size: 12px;
+}
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.inline-form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.inline-form input {
+  width: 160px;
+}
+.table-wrap {
+  overflow-x: auto;
+}
+td.nowrap {
+  white-space: nowrap;
+}
+tr.editing td {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+td.notice-cell {
+  min-width: 220px;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
