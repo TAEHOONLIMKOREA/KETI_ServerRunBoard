@@ -12,8 +12,8 @@ BASE = float((int(T0) // CHURN_PERIOD_S) * CHURN_PERIOD_S)
 
 
 @pytest.fixture
-def tracker(config, fake_report):
-    resolver = OwnerResolver(config)
+def tracker(config, registry, fake_report):
+    resolver = OwnerResolver(config.owner, registry)
     t = SessionTracker(miss_reports=2, offline_close_after_s=86400)
 
     def apply(now: float, **kw):
@@ -137,7 +137,7 @@ def test_take_dirty_drops_ended(tracker):
     assert ended[0].workload_id not in tracker.workloads
 
 
-def test_restore_marks_unknown_and_next_report_reconciles(tracker, config, fake_report):
+def test_restore_marks_unknown_and_next_report_reconciles(tracker, config, registry, fake_report):
     tracker.apply(BASE + 5)
     workloads, sessions = tracker.take_dirty()
 
@@ -146,7 +146,7 @@ def test_restore_marks_unknown_and_next_report_reconciles(tracker, config, fake_
     assert {s.status for s in fresh.open_sessions()} == {"unknown"}
     assert len(fresh.open_workloads()) == 6
 
-    resolver = OwnerResolver(config)
+    resolver = OwnerResolver(config.owner, registry)
     report = fake_report(now=BASE + 20)
     fresh.apply_report(report, BASE + 20, lambda p: resolver.classify(p, "fake01"))
     assert {s.status for s in fresh.open_sessions()} == {"active"}
@@ -170,3 +170,36 @@ def test_take_dirty_transitions_only(tracker):
     assert [s.status for s in sessions] == ["ended"]
     assert [w.status for w in workloads] == ["ended"]
     assert sessions[0].key not in tracker.sessions, "끝난 것은 메모리에서 빠진다"
+
+
+def test_registry_change_reclassifies_open_workloads(config, registry, fake_report):
+    """등록 정보가 바뀌면 이미 돌고 있는 작업도 다음 보고 때 유형·소유자를 다시 판정한다."""
+    from runboard_server.registry import UserEntry
+
+    t = SessionTracker()
+    resolver = OwnerResolver(config.owner, registry)
+
+    def apply(now: float) -> None:
+        report = fake_report(now=now)
+        t.apply_report(report, now, lambda p: resolver.classify(p, "fake01"))
+
+    apply(BASE + 5)
+    stoic = _wl_by_name(t, "stoic_lovelace")
+    jihye = _wl_by_name(t, "train.py")
+    assert stoic.owner is None and jihye.owner == "jihye"
+    t.take_dirty()
+
+    registry.users.append(UserEntry(username="stoic"))
+    registry.users = [u for u in registry.users if u.username != "jihye"]
+    resolver = OwnerResolver(config.owner, registry)
+    apply(BASE + 6)
+    assert stoic.owner is None, "세션은 처음 볼 때만 판정한다"
+
+    t.mark_reclassify()
+    apply(BASE + 7)
+    assert (stoic.owner, stoic.owner_source) == ("stoic", "container_rule"), "컨테이너명 규칙"
+    assert (jihye.owner, jihye.owner_source) == (None, "none"), "지운 사용자의 작업은 미확인"
+    workloads, _ = t.take_dirty(transitions_only=True)
+    assert {w.id for w in workloads} == {stoic.id, jihye.id}, "바뀐 작업만 바로 저장한다"
+    apply(BASE + 8)
+    assert t.take_dirty(transitions_only=True) == ([], []), "다시 판정은 한 번이면 끝"

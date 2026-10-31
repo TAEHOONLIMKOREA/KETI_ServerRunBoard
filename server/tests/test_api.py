@@ -12,11 +12,11 @@ BASE = float((int(T0) // CHURN_PERIOD_S) * CHURN_PERIOD_S)
 
 
 @pytest.fixture
-def app(config):
+def app(config, registry):
     class Clock:
         now = BASE + 5
 
-    application = create_app(config, start_scheduler=False, use_db=False)
+    application = create_app(config, start_scheduler=False, use_db=False, registry=registry)
     application.state.engine.clock = lambda: Clock.now
     application.state.clock = Clock
     return application
@@ -207,3 +207,14 @@ def test_nodes_join_with_shared_token_and_keep_sequential_names(client, app, fak
     assert names == ["Server_1", "Server_2", "Server_3"], "순번 순으로 나온다"
     wl = client.get("/api/v1/workloads", params={"node": "id-A"}).json()["workloads"]
     assert wl and wl[0]["node_display"] == "Server_1"
+    gpu0 = client.get("/api/v1/nodes/id-A").json()["gpus"][0]
+    assert gpu0["workloads"] and gpu0["occupancy"] == "occupied", (
+        "node_id 로 등록된 노드도 GPU 행에 작업이 보인다"
+    )
+
+
+def test_admin_reads_registry_but_needs_db_to_write(client):
+    users = client.get("/api/v1/admin/users").json()
+    assert [u["username"] for u in users] == ["taehoon", "minsu", "jihye"]
+    r = client.post("/api/v1/admin/users", json={"username": "newbie"})
+    assert r.status_code == 503

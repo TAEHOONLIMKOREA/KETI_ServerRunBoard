@@ -15,15 +15,19 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from runboard_server import __version__
-from runboard_server.api import ingest, query
+from runboard_server.api import admin, ingest, query
 from runboard_server.config import ServerConfig, load_server_config
 from runboard_server.core.engine import Engine
 from runboard_server.db.repo import Repository
+from runboard_server.errors import Conflict, Invalid
+from runboard_server.registry import Registry
 
 log = logging.getLogger("runboard_server")
 
@@ -45,11 +49,13 @@ def create_app(
     *,
     start_scheduler: bool = True,
     use_db: bool = True,
+    registry: Registry | None = None,
 ) -> FastAPI:
+    """registry 는 DB 없이(use_db=False) 띄우는 테스트용. 주지 않으면 DB 에서 읽는다."""
     cfg = cfg or load_server_config()
     if repo is None and use_db:
         repo = Repository(cfg.server.db_url)
-    engine = Engine(cfg, repo)
+    engine = Engine(cfg, repo, registry=registry)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -71,10 +77,35 @@ def create_app(
     app.state.repo = repo
     app.include_router(ingest.router)
     app.include_router(query.router)
+    app.include_router(admin.router)
+    app.add_exception_handler(Conflict, _conflict)
+    app.add_exception_handler(Invalid, _invalid)
+    app.add_exception_handler(RequestValidationError, _validation_error)
 
     if cfg.server.web_dist:
         _mount_web(app, Path(cfg.server.web_dist))
     return app
+
+
+async def _conflict(request: Request, exc: Conflict) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+async def _invalid(request: Request, exc: Invalid) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """FastAPI 기본과 같은 422. 되돌려 주는 입력값(input)을 JSON 으로 못 바꾸면 빼고 보낸다.
+
+    NaN 이나 짝 없는 서로게이트(UTF-8 이 아닌 CLI 인자 등)가 든 입력은 기본 처리로는 422 대신 500 이 된다.
+    """
+    errors = jsonable_encoder(exc.errors())
+    try:
+        return JSONResponse(status_code=422, content={"detail": errors})
+    except ValueError:  # NaN 은 allow_nan=False, 서로게이트는 UnicodeEncodeError
+        errors = [{k: v for k, v in e.items() if k != "input"} for e in errors]
+        return JSONResponse(status_code=422, content={"detail": errors})
 
 
 def _mount_web(app: FastAPI, dist: Path) -> None:

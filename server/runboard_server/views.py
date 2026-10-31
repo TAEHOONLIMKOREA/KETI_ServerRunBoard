@@ -17,7 +17,7 @@ class WorkloadOnGpu(BaseModel):
     owner_display: str | None
     owner_source: str
     owner_slot: int | None = Field(
-        default=None, description="대시보드 색 번호 0~7 (users 순서). 없으면 중립색"
+        default=None, description="대시보드 색 번호 0~7 (등록 사용자 순서). 없으면 중립색"
     )
     service_name: str | None = None
     project: str | None = None
@@ -81,6 +81,21 @@ class NodeOut(BaseModel):
     gpus: list[GpuOut]
 
 
+class NodeBrief(BaseModel):
+    """관리용 노드 목록 한 줄 (GET /api/v1/admin/nodes, runboard-server nodes list). GPU 는 수만 센다."""
+
+    key: str = Field(description="노드 식별자. 관리 API 경로에 쓴다")
+    display_name: str
+    hostname: str
+    node_id: str | None
+    seq: int | None = Field(description="처음 본 순서. 목록은 대시보드처럼 이 순서다")
+    ip: str | None
+    gpu_count: int
+    conn_status: str
+    last_received_ts: float
+    age_s: float = Field(description="마지막 보고 뒤 지난 초 (서버 시계)")
+
+
 class Summary(BaseModel):
     nodes: int
     nodes_offline: int
@@ -90,10 +105,24 @@ class Summary(BaseModel):
     workloads: int
 
 
+class NoticeOut(BaseModel):
+    """헤더 아래 공지 한 줄 (notices.py)."""
+
+    id: int
+    text: str
+    level: str = Field(description="info(안내) | warning(주의)")
+    until: float | None = Field(
+        description="epoch 초. 이 시각이 지나면 내려간다. null 이면 지울 때까지"
+    )
+
+
 class OverviewOut(BaseModel):
     generated_ts: float
     summary: Summary
     nodes: list[NodeOut]
+    notices: list[NoticeOut] = Field(
+        description="기한이 지나지 않은 공지만. 주의가 안내보다 먼저, 같은 수준은 먼저 등록한 것부터"
+    )
 
 
 class SessionOut(BaseModel):
@@ -156,7 +185,7 @@ class UserOut(BaseModel):
     display_name: str
     registered: bool
     color_slot: int | None = Field(
-        default=None, description="대시보드 색 번호 0~7 (users 순서). 없으면 중립색"
+        default=None, description="대시보드 색 번호 0~7 (등록 사용자 순서). 없으면 중립색"
     )
     workloads: int
     gpus: int

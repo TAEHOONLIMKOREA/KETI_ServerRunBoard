@@ -67,6 +67,15 @@ def test_only_postgres_is_accepted(tmp_path: Path, monkeypatch):
         load_server_config(None, env={"RUNBOARD_DB_URL": "not a url"})
 
 
+def test_registry_sections_in_yaml_are_rejected(tmp_path: Path):
+    """사용자·매핑·서비스는 DB 로 옮겼다. 예전 YAML 을 그대로 쓰면 조용히 무시하지 않고 알린다."""
+    yaml_file = tmp_path / "runboard.yaml"
+    yaml_file.write_text("users:\n  - username: a\nservices: []\n", encoding="utf-8")
+    env = {"RUNBOARD_SETTINGS": str(_write(tmp_path))}
+    with pytest.raises(ValueError, match=r"users, services 는 이제 DB 에서 관리한다"):
+        load_server_config(yaml_file, env=env)
+
+
 def test_missing_settings_are_named(tmp_path: Path):
     with pytest.raises(ValueError, match="dbname, user, password"):
         load_db_url(_write(tmp_path, "[postgres_db]\nhost = h\nport = 5432\n"))

@@ -1,5 +1,6 @@
 # RunBoard 서버 설정 예시. 복사해서 runboard.yaml 로 쓰고 RUNBOARD_CONFIG 로 가리키거나 --config 로 넘긴다.
-# MVP 동안은 관리 페이지(v0.3) 대신 이 파일로 노드 토큰·사용자·매핑을 관리한다 (docs/IMPLEMENTATION.md 1장).
+# 이 파일에는 실행 설정·노드 토큰·임계값·소유자 판정 규칙만 둔다.
+# 사용자·별칭, 계정 매핑, 공용 서비스는 PostgreSQL 에 두고 웹 관리 화면(/admin)에서 고친다.
 
 server:
   # DB 접속 정보는 여기 두지 않는다. 레포 루트의 settings.ini 에서 읽는다
@@ -7,7 +8,7 @@ server:
   web_dist: web/dist                   # 빌드된 프론트. 없으면 API 만 제공
   host: 0.0.0.0
   port: 8000
-  display_name_prefix: Server_         # 처음 본 노드의 화면 이름 접두어 (Server_1, Server_2 …). 바꾸려면 DB nodes.display_name 을 고치고 재시작
+  display_name_prefix: Server_         # 처음 본 노드의 화면 이름 접두어 (Server_1, Server_2 …). 이름은 관리 화면 '노드' 탭에서 바꾼다
 
 auth:
   # 등록 토큰. 이 토큰으로 보고하는 에이전트는 이름을 미리 등록하지 않아도 참여한다 (서버 재시작 불필요).
@@ -33,33 +34,7 @@ thresholds:
   clock_skew_max_s: 60                 # 측정·수신 시각 차이가 이보다 크면 수신 시각 사용
 
 owner:
-  container_name_rule: "^(?P<user>[A-Za-z][A-Za-z0-9]*)[_-]"   # <user>_<용도> 규칙. user 가 등록 사용자일 때만
+  container_name_rule: "^(?P<user>[A-Za-z][A-Za-z0-9]*)[_-]"   # <user>_<용도> 규칙. user 가 등록 사용자(관리 화면)일 때만
   label_owner: runboard.owner
   label_project: runboard.project
   label_job: runboard.job
-
-users:
-  # 순서가 대시보드 색 순서다. 앞에서부터 8명이 고유색을 받고, 그 뒤와 미등록 사용자는 중립색이다
-  - username: taehoon
-    display_name: 임태훈
-    aliases: [th]                      # 호스트 계정명이 다르면 여기에
-  - username: minsu
-    display_name: 김민수
-  - username: jihye
-
-account_mappings:
-  # (노드, uid) → 사용자. node 는 호스트명·node_id·화면 이름(Server_n) 어느 것이든 된다. 생략하면 모든 노드. 실행 계정명이 등록 사용자와 같으면 매핑 없이도 인식된다.
-  - uid: 1001
-    user: taehoon
-
-services:
-  # 공용 서비스 레지스트리. 매칭되면 유형 shared_service, 소유자는 담당자(owner)
-  - name: ollama
-    match_exec_account: ollama
-    owner: taehoon
-    idle_exempt: true
-  - name: vllm
-    match_container_pattern: "^vllm"
-    match_image_pattern: "vllm/vllm-openai"
-    owner: null
-    idle_exempt: true

@@ -1,7 +1,8 @@
 """서버 설정 (runboard.yaml) 과 DB 접속 정보 (settings.ini).
 
-MVP 동안은 관리 페이지(v0.3) 대신 이 파일 하나로 노드 토큰, 사용자, 계정 매핑,
-공용 서비스 레지스트리, 임계값을 관리한다 (IMPLEMENTATION.md 1장).
+runboard.yaml 에는 실행 설정, 노드 토큰, 임계값, 소유자 판정 규칙만 둔다. 사용자·계정 매핑·공용
+서비스는 DB 에 두고 웹 관리 화면에서 고친다 (registry.py).
+DB 접속 정보는 git 에 올리지 않는 settings.ini 에 따로 둔다. 코드에는 접속 정보가 없다. DB 는 PostgreSQL 만 쓴다.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from sqlalchemy.exc import ArgumentError
 SETTINGS_FILE = "settings.ini"  # 실행 디렉터리 기준. RUNBOARD_SETTINGS 로 바꾼다
 _DB_SECTION = "postgres_db"
 _DB_KEYS = ("host", "port", "dbname", "user", "password")
+_MOVED_TO_DB = ("users", "account_mappings", "services")  # 예전 YAML 섹션. 지금은 DB 의 등록 정보
 
 
 class ServerSection(BaseModel):
@@ -73,37 +75,11 @@ class OwnerRules(BaseModel):
     label_job: str = "runboard.job"
 
 
-class UserEntry(BaseModel):
-    username: str
-    display_name: str | None = None
-    email: str | None = None
-    slack_id: str | None = None
-    aliases: list[str] = Field(default_factory=list, description="호스트 계정명 등 다른 이름")
-
-
-class AccountMapping(BaseModel):
-    node: str | None = Field(default=None, description="None 이면 모든 노드")
-    uid: int
-    user: str
-
-
-class ServiceEntry(BaseModel):
-    name: str
-    match_exec_account: str | None = None
-    match_container_pattern: str | None = None
-    match_image_pattern: str | None = None
-    owner: str | None = Field(default=None, description="담당자 username")
-    idle_exempt: bool = True
-
-
 class ServerConfig(BaseModel):
     server: ServerSection = Field(default_factory=ServerSection)
     auth: AuthSection = Field(default_factory=AuthSection)
     thresholds: Thresholds = Field(default_factory=Thresholds)
     owner: OwnerRules = Field(default_factory=OwnerRules)
-    users: list[UserEntry] = Field(default_factory=list)
-    account_mappings: list[AccountMapping] = Field(default_factory=list)
-    services: list[ServiceEntry] = Field(default_factory=list)
 
 
 def load_db_url(path: Path) -> str:
@@ -150,6 +126,12 @@ def load_server_config(
         if not path.exists():
             raise FileNotFoundError(f"설정 파일이 없다: {path}")
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        moved = [key for key in _MOVED_TO_DB if key in data]
+        if moved:
+            raise ValueError(
+                f"{path} 의 {', '.join(moved)} 는 이제 DB 에서 관리한다. "
+                "웹 관리 화면(/admin)에서 등록하고 YAML 에서는 지운다"
+            )
     cfg = ServerConfig.model_validate(data)
     settings = Path(env.get("RUNBOARD_SETTINGS") or SETTINGS_FILE)
     if settings.exists():

@@ -7,28 +7,62 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 
-from sqlalchemy import create_engine, func, inspect, select, text
+from pydantic import BaseModel, ValidationError
+from sqlalchemy import create_engine, delete, func, inspect, select, text
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy.orm import sessionmaker
 
 from runboard_common.schemas import GpuReport, NodeInfo
 from runboard_server.core.sessions import Session, Workload
-from runboard_server.core.state import GpuState, NodeState
+from runboard_server.core.state import GpuState, NodeState, free_name
 from runboard_server.db.models import (
+    AccountMappingRow,
     Base,
     GpuRow,
     GpuSampleRow,
     NodeRow,
+    NoticeRow,
+    ServiceRow,
     SessionRow,
+    UserRow,
     WorkloadRow,
+)
+from runboard_server.errors import Conflict, Invalid
+from runboard_server.notices import NoticeEntry, NoticeFields
+from runboard_server.registry import (
+    AccountMapping,
+    MappingFields,
+    Registry,
+    ServiceEntry,
+    ServiceFields,
+    UserEntry,
+    UserFields,
 )
 
 log = logging.getLogger(__name__)
 
 _WORKLOAD_FIELDS = [f.name for f in dataclasses.fields(Workload) if f.name != "dirty"]
 _SESSION_FIELDS = [f.name for f in dataclasses.fields(Session) if f.name != "dirty"]
+
+# create_all 은 기존 표에 열을 더하지 않는다. 나중에 생긴 열은 전부 NULL 허용이라 ADD COLUMN 만 하면 된다
+_ADDED_COLUMNS = {
+    "nodes": {"hostname": "VARCHAR(64)", "display_name": "VARCHAR(64)", "seq": "INTEGER"},
+}
+
+
+def _entries(model: type[BaseModel], rows: Iterable) -> list:
+    """DB 행을 등록 정보·공지 모델로. 손으로 고쳐 값이 틀린 행은 경고만 남기고 건너뛴다."""
+    out = []
+    for row in rows:
+        try:
+            out.append(model.model_validate(row, from_attributes=True))
+        except ValidationError as exc:
+            log.warning("%s 행을 건너뛴다 (값이 올바르지 않다): %s", row.__tablename__, exc)
+    return out
 
 
 class Repository:
@@ -37,23 +71,37 @@ class Repository:
         # DB 가 재시작하면 풀의 연결이 끊겨 있다. 꺼낼 때 확인해서 저장이 한 번 실패하는 것을 막는다
         self.engine = create_engine(db_url, future=True, pool_pre_ping=True)
         Base.metadata.create_all(self.engine)
-        self._add_missing_columns()
+        self._migrate()
         self._sessions = sessionmaker(self.engine, expire_on_commit=False)
 
     def close(self) -> None:
         self.engine.dispose()
 
-    def _add_missing_columns(self) -> None:
-        """create_all 은 기존 테이블에 열을 추가하지 않는다. Alembic(v0.2) 전까지 nullable 열만 ADD COLUMN 한다."""
-        wanted = {"hostname": "VARCHAR(64)", "display_name": "VARCHAR(64)", "seq": "INTEGER"}
-        existing = {c["name"] for c in inspect(self.engine).get_columns("nodes")}
-        missing = [(col, ddl) for col, ddl in wanted.items() if col not in existing]
-        if not missing:
-            return
+    def _migrate(self) -> None:
+        """create_all 은 기존 표를 바꾸지 않는다. Alembic 은 쓰지 않고 필요한 변경을 여기서 한다.
+
+        빠진 열(_ADDED_COLUMNS)을 더하고, 옛 세션 키 유일 제약(uq_session_key)을 지우고, 없는 인덱스를 만든다.
+        """
+        insp = inspect(self.engine)
+        missing: list[tuple[str, str, str]] = []
+        for table, wanted in _ADDED_COLUMNS.items():
+            existing = {c["name"] for c in insp.get_columns(table)}
+            missing += [(table, col, ddl) for col, ddl in wanted.items() if col not in existing]
+        old_key = any(
+            c["name"] == "uq_session_key" for c in insp.get_unique_constraints("gpu_sessions")
+        )
         with self.engine.begin() as conn:
-            for col, ddl in missing:
-                conn.execute(text(f"ALTER TABLE nodes ADD COLUMN {col} {ddl}"))
-        log.info("nodes 표에 열 추가: %s", ", ".join(col for col, _ in missing))
+            for table, col, ddl in missing:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
+            if old_key:  # 끝난 세션까지 막던 유일 제약 → 열린 세션만 막는 부분 인덱스
+                conn.execute(text("ALTER TABLE gpu_sessions DROP CONSTRAINT uq_session_key"))
+        for table in Base.metadata.sorted_tables:
+            for index in table.indexes:
+                index.create(self.engine, checkfirst=True)
+        if missing:
+            log.info("표에 열 추가: %s", ", ".join(f"{t}.{col}" for t, col, _ in missing))
+        if old_key:
+            log.info("gpu_sessions 세션 키 유일 제약을 열린 세션에만 건다")
 
     # ------------------------------------------------------------------ 노드·GPU·샘플
 
@@ -130,10 +178,12 @@ class Repository:
         with self._sessions.begin() as db:
             rows = db.scalars(select(NodeRow).order_by(NodeRow.first_seen, NodeRow.name)).all()
             next_seq = max((r.seq or 0 for r in rows), default=0) + 1
+            taken = {x for r in rows for x in (r.display_name, r.name, r.hostname) if x}
             for n in rows:
                 if n.seq is None or not n.display_name:
                     n.seq = next_seq
-                    n.display_name = f"{prefix}{next_seq}"
+                    n.display_name = free_name(prefix, next_seq, taken)
+                    taken.add(n.display_name)
                     next_seq += 1
                 hostname = n.hostname or n.name
                 info = NodeInfo(
@@ -193,6 +243,145 @@ class Repository:
         workloads = [Workload(**{f: getattr(r, f) for f in _WORKLOAD_FIELDS}) for r in wrows]
         sessions = [Session(**{f: getattr(r, f) for f in _SESSION_FIELDS}) for r in srows]
         return workloads, sessions
+
+    # ------------------------------------------------------------------ 등록 정보 (관리 API)
+
+    def load_registry(self) -> Registry:
+        with self._sessions() as db:
+            users = db.scalars(select(UserRow).order_by(UserRow.position, UserRow.username)).all()
+            mappings = db.scalars(select(AccountMappingRow).order_by(AccountMappingRow.id)).all()
+            services = db.scalars(select(ServiceRow).order_by(ServiceRow.id)).all()
+            return Registry(
+                users=_entries(UserEntry, users),
+                account_mappings=_entries(AccountMapping, mappings),
+                services=_entries(ServiceEntry, services),
+            )
+
+    @contextmanager
+    def _writing(self) -> Iterator[OrmSession]:
+        """관리 쓰기 트랜잭션. API 가 먼저 검사하므로 제약 위반은 동시에 고친 경우뿐이다. 409 로 돌려준다.
+
+        DB 가 받지 않는 값(DataError)은 422 로 돌려준다. 공지와 노드 화면 이름의 제어 문자는 입력 모델이 먼저
+        막고(registry.check_chars), 등록 정보 문자열과 경로의 사용자 이름에 든 NUL 이 여기까지 온다.
+        """
+        try:
+            with self._sessions.begin() as db:
+                yield db
+        except IntegrityError as exc:
+            log.warning("등록 정보 제약 위반: %s", exc.orig)
+            raise Conflict("다른 요청과 겹쳤다. 목록을 새로 읽고 다시 한다") from exc
+        except DataError as exc:
+            log.warning("DB 가 받지 않는 값: %s", exc.orig)
+            raise Invalid("DB 에 넣을 수 없는 값이다 (NUL 같은 제어 문자 등)") from exc
+
+    def _update(self, model, key, values: dict) -> bool:
+        """기본 키는 바꾸지 않는다. 호출하는 쪽이 values 에서 뺀다."""
+        with self._writing() as db:
+            row = db.get(model, key)
+            if row is None:
+                return False
+            for name, value in values.items():
+                setattr(row, name, value)
+            return True
+
+    def _delete(self, model, key) -> bool:
+        with self._writing() as db:
+            row = db.get(model, key)
+            if row is None:
+                return False
+            db.delete(row)
+            return True
+
+    def add_user(self, user: UserEntry) -> None:
+        """맨 뒤에 붙인다 (색 순서도 맨 뒤)."""
+        with self._writing() as db:
+            last = db.scalar(select(func.max(UserRow.position)))
+            db.add(UserRow(**user.model_dump(), position=0 if last is None else last + 1))
+
+    def update_user(self, username: str, fields: UserFields) -> bool:
+        return self._update(UserRow, username, fields.model_dump(exclude={"username"}))
+
+    def delete_user(self, username: str) -> bool:
+        """이 사용자의 계정 매핑도 지워지고, 담당 서비스는 담당자가 비워진다 (외래 키)."""
+        return self._delete(UserRow, username)
+
+    def reorder_users(self, usernames: list[str]) -> bool:
+        """usernames 순서로 색 순서를 다시 매긴다. 목록이 지금 사용자 전체와 다르면 False."""
+        with self._writing() as db:
+            rows = {r.username: r for r in db.scalars(select(UserRow)).all()}
+            if len(usernames) != len(rows) or set(usernames) != set(rows):
+                return False
+            for position, username in enumerate(usernames):
+                rows[username].position = position
+            return True
+
+    def add_mapping(self, mapping: MappingFields) -> int:
+        with self._writing() as db:
+            row = AccountMappingRow(**mapping.model_dump(exclude={"id"}))
+            db.add(row)
+            db.flush()
+            return row.id
+
+    def update_mapping(self, mapping_id: int, mapping: MappingFields) -> bool:
+        return self._update(AccountMappingRow, mapping_id, mapping.model_dump(exclude={"id"}))
+
+    def delete_mapping(self, mapping_id: int) -> bool:
+        return self._delete(AccountMappingRow, mapping_id)
+
+    def add_service(self, service: ServiceFields) -> int:
+        with self._writing() as db:
+            row = ServiceRow(**service.model_dump(exclude={"id"}))
+            db.add(row)
+            db.flush()
+            return row.id
+
+    def update_service(self, service_id: int, service: ServiceFields) -> bool:
+        return self._update(ServiceRow, service_id, service.model_dump(exclude={"id"}))
+
+    def delete_service(self, service_id: int) -> bool:
+        return self._delete(ServiceRow, service_id)
+
+    # ------------------------------------------------------------------ 공지 (관리 API)
+
+    def load_notices(self) -> list[NoticeEntry]:
+        """기한이 지난 것까지 전부, 등록 순."""
+        with self._sessions() as db:
+            return _entries(NoticeEntry, db.scalars(select(NoticeRow).order_by(NoticeRow.id)).all())
+
+    def add_notice(self, notice: NoticeFields, created_ts: float) -> NoticeEntry:
+        with self._writing() as db:
+            row = NoticeRow(**notice.model_dump(), created_ts=created_ts)
+            db.add(row)
+            db.flush()
+            return NoticeEntry.model_validate(row, from_attributes=True)
+
+    def update_notice(self, notice_id: int, notice: NoticeFields) -> NoticeEntry | None:
+        """내용·수준·기한을 바꾼다. 등록 시각(배너 순서)은 그대로다. 없는 공지면 None."""
+        with self._writing() as db:
+            row = db.get(NoticeRow, notice_id)
+            if row is None:
+                return None
+            for name, value in notice.model_dump().items():
+                setattr(row, name, value)
+            return NoticeEntry.model_validate(row, from_attributes=True)
+
+    def delete_notice(self, notice_id: int) -> bool:
+        return self._delete(NoticeRow, notice_id)
+
+    # ------------------------------------------------------------------ 노드 관리
+
+    def rename_node(self, key: str, display_name: str) -> None:
+        """DB 가 받지 않는 이름이면 Invalid. 엔진은 이것이 성공한 뒤에 메모리 이름을 바꾼다."""
+        with self._writing() as db:
+            row = db.get(NodeRow, key)
+            if row is not None:
+                row.display_name = display_name
+
+    def delete_node(self, key: str) -> None:
+        """nodes·gpus 행만 지운다. 작업·세션·샘플은 이력이라 남긴다."""
+        with self._sessions.begin() as db:
+            db.execute(delete(GpuRow).where(GpuRow.node_name == key))
+            db.execute(delete(NodeRow).where(NodeRow.name == key))
 
     # ------------------------------------------------------------------ 조회·테스트 보조
 

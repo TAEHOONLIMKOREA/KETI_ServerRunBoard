@@ -1,17 +1,16 @@
-"""영속화: 엔진 → SQLite 저장 → 새 엔진에서 복원."""
+"""영속화: 엔진 → PostgreSQL 저장 → 새 엔진에서 복원. 등록 정보 저장과 외래 키 동작."""
 
 from runboard_agent.collector.fake import CHURN_ALIVE_S, CHURN_PERIOD_S
 from runboard_server.core.engine import Engine
 from runboard_server.db.models import GpuRow, GpuSampleRow, NodeRow, SessionRow, WorkloadRow
-from runboard_server.db.repo import Repository
+from runboard_server.registry import MappingFields, UserFields
 
 T0 = 1_760_600_000.0
 BASE = float((int(T0) // CHURN_PERIOD_S) * CHURN_PERIOD_S)
 
 
-def test_ingest_persists_and_restores(config, fake_report):
-    repo = Repository("sqlite://")
-    engine = Engine(config, repo, clock=lambda: BASE + 5)
+def test_ingest_persists_and_restores(config, registry, repo, fake_report):
+    engine = Engine(config, repo, clock=lambda: BASE + 5, registry=registry)
     engine.ingest(fake_report(now=BASE + 5))
 
     assert repo.count(NodeRow) == 1
@@ -44,7 +43,7 @@ def test_ingest_persists_and_restores(config, fake_report):
     assert len(engine.tracker.open_sessions()) == 7
 
     # 재시작: 열린 것만 복원, 전부 unknown 으로 시작
-    fresh = Engine(config, repo, clock=lambda: BASE + 60)
+    fresh = Engine(config, repo, clock=lambda: BASE + 60, registry=registry)
     fresh.restore()
     node = fresh.state.nodes["fake01"]
     assert node.conn_status == "offline" and len(node.gpus) == 8, "노드는 비활성화로 남는다"
@@ -60,12 +59,29 @@ def test_ingest_persists_and_restores(config, fake_report):
     fresh.ingest(fake_report(now=BASE + 60))
     assert {s.status for s in fresh.tracker.open_sessions()} == {"active"}
     assert {s.id for s in fresh.tracker.open_sessions()} == {s.id for s in restored}
-    repo.close()
 
 
-def test_tick_updates_node_status_in_db(config, fake_report):
-    repo = Repository("sqlite://")
-    engine = Engine(config, repo, clock=lambda: BASE + 5)
+def test_restore_keys_nodes_by_node_id(config, registry, repo, fake_report):
+    """node_id 로 등록된 노드는 재시작 뒤에도 같은 식별자로 복원되어, 다음 보고가 새 노드를 만들지 않는다."""
+    engine = Engine(config, repo, clock=lambda: BASE + 5, registry=registry)
+    report = fake_report(now=BASE + 5, node="host-a")
+    report.node.node_id = "id-a"
+    engine.ingest(report)
+
+    fresh = Engine(config, repo, clock=lambda: BASE + 60, registry=registry)
+    fresh.restore()
+    assert list(fresh.state.nodes) == ["id-a"]
+    again = fake_report(now=BASE + 60, node="host-a")
+    again.node.node_id = "id-a"
+    fresh.ingest(again)
+    nodes = fresh.overview(now=BASE + 60).nodes
+    assert [(n.key, n.display_name, n.conn_status) for n in nodes] == [
+        ("id-a", "Server_1", "online")
+    ]
+
+
+def test_tick_updates_node_status_in_db(config, registry, repo, fake_report):
+    engine = Engine(config, repo, clock=lambda: BASE + 5, registry=registry)
     engine.ingest(fake_report(now=BASE + 5))
     engine.tick(now=BASE + 40)
     with repo.orm() as db:
@@ -73,11 +89,9 @@ def test_tick_updates_node_status_in_db(config, fake_report):
         assert row.conn_status == "offline"
         statuses = {r.status for r in db.query(SessionRow).all()}
     assert statuses == {"unknown"}
-    repo.close()
 
 
-def test_load_nodes_backfills_display_names_once():
-    repo = Repository("sqlite://")
+def test_load_nodes_backfills_display_names_once(repo):
     with repo.orm() as db:
         db.add(NodeRow(name="old01", first_seen=1.0, last_received_ts=1.0, last_measured_ts=1.0))
         db.add(NodeRow(name="old02", first_seen=2.0, last_received_ts=2.0, last_measured_ts=2.0))
@@ -90,12 +104,31 @@ def test_load_nodes_backfills_display_names_once():
     assert nodes[0].info.name == "old01" and nodes[0].info.node_id is None, "옛 행은 이름이 식별자"
     again = repo.load_nodes(prefix="Other_")
     assert [n.display_name for n in again] == ["Srv_1", "Srv_2"], "한 번 붙인 이름은 유지"
-    repo.close()
 
 
-def test_hostname_change_is_saved_immediately(config, fake_report):
-    repo = Repository("sqlite://")
-    engine = Engine(config, repo, clock=lambda: BASE + 5)
+def test_load_nodes_backfill_skips_names_in_use(repo):
+    with repo.orm() as db:
+        db.add(NodeRow(name="old01", first_seen=1.0, last_received_ts=1.0, last_measured_ts=1.0))
+        db.add(
+            NodeRow(
+                name="old02",
+                first_seen=2.0,
+                last_received_ts=2.0,
+                last_measured_ts=2.0,
+                display_name="Srv_3",
+                seq=2,
+            )
+        )
+        db.commit()
+    nodes = repo.load_nodes(prefix="Srv_")
+    assert [(n.key, n.display_name, n.seq) for n in nodes] == [
+        ("old02", "Srv_3", 2),
+        ("old01", "Srv_4", 3),
+    ], "순번 이름 Srv_3 은 이미 쓰이므로 다음 번호"
+
+
+def test_hostname_change_is_saved_immediately(config, registry, repo, fake_report):
+    engine = Engine(config, repo, clock=lambda: BASE + 5, registry=registry)
     first = fake_report(now=BASE + 5, node="host-a")
     first.node.node_id = "id-a"
     engine.ingest(first)
@@ -109,4 +142,53 @@ def test_hostname_change_is_saved_immediately(config, fake_report):
         "persist 간격을 기다리지 않는다"
     )
     assert repo.count(GpuSampleRow) == 8, "샘플은 간격대로만 쓴다"
-    repo.close()
+
+
+def test_long_container_metadata_is_clipped_to_columns(config, registry, repo, fake_report):
+    engine = Engine(config, repo, clock=lambda: BASE + 5, registry=registry)
+    report = fake_report(now=BASE + 5)
+    labels = {"runboard.owner": "o" * 99, "runboard.project": "p" * 999, "runboard.job": "j" * 999}
+    for gpu in report.gpus:
+        for proc in gpu.processes:
+            if proc.container and proc.container.name == "taehoon_torch":
+                proc.container.name = "c" * 999
+                proc.container.image = "i" * 999
+                proc.container.labels.update(labels)
+    engine.ingest(report)
+    with repo.orm() as db:
+        row = db.query(WorkloadRow).filter(WorkloadRow.container_name.like("ccc%")).one()
+    stored = (row.name, row.container_name, row.image, row.project, row.job, row.owner)
+    assert [len(v) for v in stored] == [200, 200, 300, 100, 100, 64], (
+        "PostgreSQL 은 길이를 넘는 값이 하나라도 있으면 그 트랜잭션 전체를 거부한다"
+    )
+    shown = next(w for w in engine.tracker.open_workloads() if w.id == row.id)
+    assert len(shown.container_name) == 999, "화면(메모리)은 원문 그대로"
+
+
+def test_registry_round_trip_and_foreign_keys(registry, repo, seed):
+    seed(repo, registry)
+    loaded = repo.load_registry()
+    assert loaded == registry, "순서·별칭·id 까지 그대로"
+
+    assert repo.update_user("minsu", UserFields(display_name="김민수2", aliases=["ms"]))
+    assert repo.reorder_users(["jihye", "minsu", "taehoon"])
+    assert not repo.reorder_users(["jihye", "minsu"]), "전체 목록이 아니면 바꾸지 않는다"
+    loaded = repo.load_registry()
+    assert [u.username for u in loaded.users] == ["jihye", "minsu", "taehoon"]
+    assert loaded.user("minsu").aliases == ["ms"]
+
+    assert repo.delete_user("taehoon")
+    loaded = repo.load_registry()
+    assert loaded.account_mappings == [], "사용자를 지우면 계정 매핑도 지워진다"
+    assert loaded.services[0].name == "ollama" and loaded.services[0].owner is None, (
+        "담당 서비스는 담당자만 비운다"
+    )
+    assert not repo.delete_user("taehoon")
+
+    first = repo.add_mapping(MappingFields(uid=0, username="minsu"))
+    second = repo.add_mapping(MappingFields(node="fake01", uid=0, username="jihye"))
+    assert second == first + 1
+    assert [(m.node, m.uid, m.username) for m in repo.load_registry().account_mappings] == [
+        (None, 0, "minsu"),
+        ("fake01", 0, "jihye"),
+    ]

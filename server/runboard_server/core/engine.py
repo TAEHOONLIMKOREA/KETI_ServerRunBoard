@@ -2,6 +2,8 @@
 
 ingest: 검증된 보고 → 시계 오차 검사 → 최신 상태 갱신 → 유형·소유자 판정 → 세션·작업 전이 → 영속화
 tick  : 연결 판정 → offline 노드의 세션을 unknown 으로 → 24시간 초과 정리 → 영속화
+관리  : 등록 정보 교체(set_registry), 공지 교체(set_notices), 노드 이름 변경·삭제
+공지  : 메모리 사본만 읽는다. overview 는 1초마다 불리므로 DB 를 읽지 않고 그때의 시각으로 기한을 거른다
 
 락 하나로 직렬화한다. 서버 프로세스는 하나다.
 """
@@ -12,7 +14,7 @@ import logging
 import threading
 import time
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from runboard_common.schemas import NodeReport
 from runboard_server.config import ServerConfig
@@ -26,10 +28,15 @@ from runboard_server.core.detector import (
 )
 from runboard_server.core.owner import OwnerResolver
 from runboard_server.core.sessions import Session, SessionTracker, Workload
-from runboard_server.core.state import GpuState, NodeState, StateStore, node_key
+from runboard_server.core.state import GpuState, NodeState, StateStore, free_name, node_key
+from runboard_server.errors import Conflict
+from runboard_server.notices import NoticeEntry, banner_order
+from runboard_server.registry import Registry
 from runboard_server.views import (
     GpuOut,
+    NodeBrief,
     NodeOut,
+    NoticeOut,
     OverviewOut,
     SessionOut,
     Summary,
@@ -47,19 +54,34 @@ UNKNOWN_USER = "_unknown"
 
 
 class Engine:
-    def __init__(self, cfg: ServerConfig, repo=None, clock: Callable[[], float] = time.time):
+    def __init__(
+        self,
+        cfg: ServerConfig,
+        repo=None,
+        clock: Callable[[], float] = time.time,
+        registry: Registry | None = None,
+    ):
+        """registry 를 주지 않으면 repo(DB)에서 읽는다. DB 도 없으면 등록 정보 없이 시작한다."""
         self.cfg = cfg
         self.th = cfg.thresholds
         self.repo = repo
         self.clock = clock
-        self.resolver = OwnerResolver(cfg)
         self.state = StateStore(util_history_s=self.th.util_history_s)
         self.tracker = SessionTracker(
             miss_reports=self.th.session_miss_reports,
             offline_close_after_s=self.th.offline_close_after_s,
         )
         self.lock = threading.RLock()
-        self._registered = {u.username for u in cfg.users}
+        # 공지: 기한이 지난 것까지 전부, 배너 순서. restore 와 관리 API 가 DB 에서 다시 읽어 넣는다
+        self.notices: list[NoticeEntry] = []
+        if registry is None:
+            registry = repo.load_registry() if repo is not None else Registry()
+        self._apply_registry(registry)
+
+    def _apply_registry(self, registry: Registry) -> None:
+        self.registry = registry
+        self.resolver = OwnerResolver(self.cfg.owner, registry)
+        self._registered = {u.username for u in registry.users}
 
     # ------------------------------------------------------------------ 쓰기 경로
 
@@ -68,14 +90,17 @@ class Engine:
             return
         nodes = self.repo.load_nodes(prefix=self.cfg.server.display_name_prefix)
         workloads, sessions = self.repo.load_open()
+        notices = self.repo.load_notices()
         with self.lock:
             self.state.restore(nodes)
             self.tracker.restore(workloads, sessions)
+        self.set_notices(notices)
         log.info(
-            "복원: 노드 %d (비활성화로 시작), 열린 작업 %d, 세션 %d (모두 미확인으로 시작)",
+            "복원: 노드 %d (비활성화로 시작), 열린 작업 %d, 세션 %d (모두 미확인으로 시작), 공지 %d",
             len(nodes),
             len(workloads),
             len(sessions),
+            len(notices),
         )
 
     def ingest(self, report: NodeReport, received_ts: float | None = None) -> None:
@@ -87,9 +112,12 @@ class Engine:
             key = node_key(report.node)
             node = self.state.update(key, report, received, ts, skew, skew_flag)
             if node.display_name is None:
-                # 처음 본 노드: 순번과 화면 이름을 붙인다. 첫 보고는 바로 DB 에 쓰이므로 재시작 뒤에도 남는다
+                # 처음 본 노드: 순번과 화면 이름을 붙인다. 이름은 rename_node 와 같은 규칙으로 다른 노드가
+                # 쓰는 이름을 피한다. 첫 보고는 바로 DB 에 쓰이므로 재시작 뒤에도 남는다
                 node.seq = self.state.next_seq()
-                node.display_name = f"{self.cfg.server.display_name_prefix}{node.seq}"
+                node.display_name = free_name(
+                    self.cfg.server.display_name_prefix, node.seq, self.state.names_in_use(key)
+                )
                 log.info(
                     "새 노드 등록: %s (호스트 %s) → %s", key, report.node.name, node.display_name
                 )
@@ -100,6 +128,69 @@ class Engine:
                 report, ts, lambda p: self.resolver.classify(p, names), node=key
             )
             self._persist(node, ts, received)
+
+    def set_registry(self, registry: Registry) -> None:
+        """관리 API 가 DB 에 쓴 뒤 다시 읽어 넘긴다. 열린 작업은 다음 보고 때 유형·소유자를 다시 판정한다."""
+        with self.lock:
+            self._apply_registry(registry)
+            self.tracker.mark_reclassify()
+
+    def set_notices(self, notices: Iterable[NoticeEntry]) -> None:
+        """시작할 때와 관리 API 가 DB 에 쓴 뒤 전부 다시 읽어 넘긴다. 판정과 무관해 재판정하지 않는다."""
+        ordered = sorted(notices, key=banner_order)
+        with self.lock:
+            self.notices = ordered
+
+    def rename_node(self, key: str, display_name: str) -> NodeOut | None:
+        """화면 이름은 다른 노드의 화면 이름·식별자·호스트명과 겹치면 안 된다.
+
+        계정 매핑의 노드와 runboard-server nodes 의 <노드> 는 셋 중 어느 것으로도 노드를 가리킨다.
+        """
+        with self.lock:
+            node = self.state.nodes.get(key)
+            if node is None:
+                return None
+            taken = next(
+                (
+                    n
+                    for n in self.state.nodes.values()
+                    if n.key != key and display_name in (n.display_name, n.key, n.info.name)
+                ),
+                None,
+            )
+            if taken is not None:
+                raise Conflict(f"다른 노드({taken.info.name})가 이미 쓰는 이름이다: {display_name}")
+            if self.repo is not None:
+                self.repo.rename_node(key, display_name)
+            log.info("노드 %s 이름 변경: %s → %s", key, node.display_name, display_name)
+            node.display_name = display_name
+            return self._node_out(node, self.clock())
+
+    def delete_node(self, key: str, now: float | None = None) -> bool:
+        """끊긴 노드만 지운다. 열린 세션은 node_removed 로 끝내고, 작업·세션·샘플 이력은 DB 에 남긴다.
+
+        보고 중인 노드를 지우면 다음 보고에서 새 이름으로 바로 다시 등록되므로 막는다.
+        """
+        with self.lock:
+            node = self.state.nodes.get(key)
+            if node is None:
+                return False
+            now = self.clock() if now is None else now
+            if (
+                conn_status(node.received_ts, now, self.th, node.info.report_interval_s or 0.0)
+                != "offline"
+            ):
+                raise Conflict(
+                    "보고 중인 노드는 지울 수 없다. 에이전트를 멈추고 '비활성화' 가 된 뒤에 지운다"
+                )
+            self.tracker.end_node(key, "node_removed")
+            workloads, sessions = self.tracker.take_dirty()
+            if self.repo is not None:
+                self.repo.save(workloads, sessions)
+                self.repo.delete_node(key)
+            del self.state.nodes[key]
+            log.info("노드 삭제: %s (%s)", node.display_name, key)
+            return True
 
     def tick(self, now: float | None = None) -> None:
         with self.lock:
@@ -150,10 +241,7 @@ class Engine:
     def overview(self, now: float | None = None) -> OverviewOut:
         with self.lock:
             now = self.clock() if now is None else now
-            nodes = [
-                self._node_out(n, now)
-                for n in sorted(self.state.nodes.values(), key=lambda n: (n.seq or 0, n.key))
-            ]
+            nodes = [self._node_out(n, now) for n in self._nodes_in_order()]
             summary = Summary(
                 nodes=len(nodes),
                 nodes_offline=sum(1 for n in nodes if n.conn_status == "offline"),
@@ -164,7 +252,12 @@ class Engine:
                 ),
                 workloads=len(self.tracker.open_workloads()),
             )
-            return OverviewOut(generated_ts=now, summary=summary, nodes=nodes)
+            notices = [
+                NoticeOut(id=n.id, text=n.text, level=n.level, until=n.until)
+                for n in self.notices
+                if n.shown(now)
+            ]
+            return OverviewOut(generated_ts=now, summary=summary, nodes=nodes, notices=notices)
 
     def node_view(self, name: str, now: float | None = None) -> NodeOut | None:
         with self.lock:
@@ -172,6 +265,28 @@ class Engine:
             if node is None:
                 return None
             return self._node_out(node, self.clock() if now is None else now)
+
+    def node_list(self, now: float | None = None) -> list[NodeBrief]:
+        """관리용 노드 목록. 대시보드와 같은 순서이고 GPU 는 수만 센다."""
+        with self.lock:
+            now = self.clock() if now is None else now
+            return [
+                NodeBrief(
+                    key=n.key,
+                    display_name=n.display_name or n.key,
+                    hostname=n.info.name,
+                    node_id=n.info.node_id,
+                    seq=n.seq,
+                    ip=n.info.ip,
+                    gpu_count=len(n.gpus),
+                    conn_status=conn_status(
+                        n.received_ts, now, self.th, n.info.report_interval_s or 0.0
+                    ),
+                    last_received_ts=n.received_ts,
+                    age_s=max(0.0, now - n.received_ts),
+                )
+                for n in self._nodes_in_order()
+            ]
 
     def workloads_view(
         self,
@@ -229,6 +344,10 @@ class Engine:
 
     # ------------------------------------------------------------------ 뷰 조립
 
+    def _nodes_in_order(self) -> list[NodeState]:
+        """대시보드 순서: 처음 본 순서(seq), 같으면 식별자."""
+        return sorted(self.state.nodes.values(), key=lambda n: (n.seq or 0, n.key))
+
     def _node_out(self, node: NodeState, now: float) -> NodeOut:
         conn = conn_status(node.received_ts, now, self.th, node.info.report_interval_s or 0.0)
         gpus = [
@@ -263,7 +382,7 @@ class Engine:
 
     def _gpu_out(self, node: NodeState, gpu: GpuState, conn: str, now: float) -> GpuOut:
         r = gpu.report
-        sessions = self.tracker.open_sessions_for_gpu(node.info.name, r.uuid)
+        sessions = self.tracker.open_sessions_for_gpu(node.key, r.uuid)
         by_workload: dict[str, list[Session]] = defaultdict(list)
         for s in sorted(sessions, key=lambda s: s.pid):
             by_workload[s.workload_id].append(s)

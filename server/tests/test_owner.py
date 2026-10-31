@@ -19,8 +19,8 @@ def container(
 
 
 @pytest.fixture
-def resolver(config) -> OwnerResolver:
-    return OwnerResolver(config)
+def resolver(config, registry) -> OwnerResolver:
+    return OwnerResolver(config.owner, registry)
 
 
 def test_label_wins_and_resolves_alias(resolver):
@@ -84,11 +84,11 @@ def test_account_map_by_uid_then_by_username(resolver):
     assert (d.owner, d.source) == ("taehoon", "account_map"), "별칭도 계정명 매핑에 쓴다"
 
 
-def test_node_specific_mapping_wins(config):
-    from runboard_server.config import AccountMapping
+def test_node_specific_mapping_wins(config, registry):
+    from runboard_server.registry import AccountMapping
 
-    config.account_mappings.append(AccountMapping(node="gpu02", uid=1001, user="minsu"))
-    resolver = OwnerResolver(config)
+    registry.account_mappings.append(AccountMapping(node="gpu02", uid=1001, username="minsu"))
+    resolver = OwnerResolver(config.owner, registry)
     assert resolver.classify(proc(exec_username="x", exec_uid=1001), "gpu02").owner == "minsu"
     assert resolver.classify(proc(exec_username="x", exec_uid=1001), "gpu01").owner == "taehoon"
 

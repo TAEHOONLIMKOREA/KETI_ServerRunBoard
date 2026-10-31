@@ -30,6 +30,14 @@ def node_key(info: NodeInfo) -> str:
     return info.node_id or info.name
 
 
+def free_name(prefix: str, start: int, taken: set[str]) -> str:
+    """taken 에 없는 첫 화면 이름 {prefix}{n} (n >= start). 순번 이름을 다른 노드가 쓰면 다음 번호로 넘어간다."""
+    n = start
+    while f"{prefix}{n}" in taken:
+        n += 1
+    return f"{prefix}{n}"
+
+
 @dataclass
 class NodeState:
     key: str
@@ -64,13 +72,23 @@ class StateStore:
         self.util_history_s = util_history_s
 
     def restore(self, nodes: Iterable[NodeState]) -> None:
-        """재시작 복원. 이미 보고한 노드는 덮어쓰지 않는다."""
+        """재시작 복원. 이미 보고한 노드는 덮어쓰지 않는다. 보고와 같은 식별자(node.key)로 넣는다."""
         for node in nodes:
-            self.nodes.setdefault(node.info.name, node)
+            self.nodes.setdefault(node.key, node)
 
     def next_seq(self) -> int:
         """새 노드의 순번. 복원된 노드까지 포함해 가장 큰 순번 + 1."""
         return max((n.seq or 0 for n in self.nodes.values()), default=0) + 1
+
+    def names_in_use(self, except_key: str) -> set[str]:
+        """except_key 가 아닌 노드들을 가리키는 이름 (화면 이름·식별자·호스트명). 화면 이름은 이것과 겹치면 안 된다."""
+        return {
+            name
+            for n in self.nodes.values()
+            if n.key != except_key
+            for name in (n.display_name, n.key, n.info.name)
+            if name
+        }
 
     def update(
         self,

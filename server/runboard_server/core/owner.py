@@ -25,11 +25,12 @@ from dataclasses import dataclass
 from typing import Literal
 
 from runboard_common.schemas import ProcessReport
-from runboard_server.config import ServerConfig, ServiceEntry
+from runboard_server.config import OwnerRules
+from runboard_server.registry import Registry, ServiceEntry
 
 WorkloadType = Literal["personal", "container", "shared_service"]
 OwnerSource = Literal["label", "container_rule", "service", "account_map", "none"]
-MAX_COLOR_SLOTS = 8  # 대시보드 범주색 수. users 목록 앞 8명이 고유색을 받는다
+MAX_COLOR_SLOTS = 8  # 대시보드 범주색 수. 등록 사용자 순서대로 앞 8명이 고유색을 받는다
 
 
 @dataclass(frozen=True)
@@ -73,25 +74,27 @@ class _CompiledService:
 
 
 class OwnerResolver:
-    def __init__(self, cfg: ServerConfig) -> None:
+    """판정 규칙(runboard.yaml owner)과 등록 정보(DB)로 만든다. 등록 정보가 바뀌면 새로 만든다."""
+
+    def __init__(self, rules: OwnerRules, registry: Registry) -> None:
         self._canonical: dict[str, str] = {}
         self._display: dict[str, str] = {}
-        for user in cfg.users:
+        for user in registry.users:
             self._canonical[user.username.lower()] = user.username
             for alias in user.aliases:
                 self._canonical[alias.lower()] = user.username
             self._display[user.username] = user.display_name or user.username
         self._slot: dict[str, int] = {
-            u.username: i for i, u in enumerate(cfg.users[:MAX_COLOR_SLOTS])
+            u.username: i for i, u in enumerate(registry.users[:MAX_COLOR_SLOTS])
         }
 
         self._acct_by_node: dict[tuple[str, int], str] = {}
         self._acct_any: dict[int, str] = {}
-        for mapping in cfg.account_mappings:
+        for mapping in registry.account_mappings:
             if mapping.node:
-                self._acct_by_node[(mapping.node, mapping.uid)] = mapping.user
+                self._acct_by_node[(mapping.node, mapping.uid)] = mapping.username
             else:
-                self._acct_any[mapping.uid] = mapping.user
+                self._acct_any[mapping.uid] = mapping.username
 
         self._services = [
             _CompiledService(
@@ -102,15 +105,15 @@ class OwnerResolver:
                 else None,
                 image_re=re.compile(s.match_image_pattern) if s.match_image_pattern else None,
             )
-            for s in cfg.services
+            for s in registry.services
         ]
         self._container_rule = (
-            re.compile(cfg.owner.container_name_rule) if cfg.owner.container_name_rule else None
+            re.compile(rules.container_name_rule) if rules.container_name_rule else None
         )
-        self._label_owner = cfg.owner.label_owner
-        self._label_project = cfg.owner.label_project
-        self._label_job = cfg.owner.label_job
-        self._service_by_name = {s.name: s for s in cfg.services}
+        self._label_owner = rules.label_owner
+        self._label_project = rules.label_project
+        self._label_job = rules.label_job
+        self._service_by_name = {s.name: s for s in registry.services}
 
     def canonical(self, name: str | None) -> str | None:
         """등록된 사용자·별칭이면 대표 username, 아니면 None."""
@@ -124,7 +127,7 @@ class OwnerResolver:
         return self._display.get(username, username)
 
     def color_slot(self, username: str | None) -> int | None:
-        """대시보드 색 번호 (0~7). runboard.yaml users 순서대로 앞 8명. 그 밖은 None (중립색)."""
+        """대시보드 색 번호 (0~7). 등록 사용자 순서대로 앞 8명. 그 밖은 None (중립색)."""
         if username is None:
             return None
         return self._slot.get(username)

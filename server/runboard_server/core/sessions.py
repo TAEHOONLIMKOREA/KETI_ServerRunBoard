@@ -12,8 +12,10 @@
 | 노드 복귀, 같은 키 없음 | ended, 사유 lost_while_offline |
 | 부팅 ID 변경 | 열린 세션 전부 ended, 사유 node_rebooted |
 | offline 24시간 초과 | unknown 세션 ended, 사유 node_offline_timeout |
+| 관리 화면에서 노드 삭제 | 열린 세션 전부 ended, 사유 node_removed |
 
 메모리 점유량(GB·시간)과 평균 사용률은 보고마다 세션에 누적한다. unknown 구간은 누적하지 않는다.
+등록 정보(사용자·매핑·서비스)가 바뀌면 열린 작업의 유형·소유자를 다음 보고 때 다시 판정한다.
 """
 
 from __future__ import annotations
@@ -29,7 +31,9 @@ from runboard_server.core.owner import OwnerDecision
 from runboard_server.core.workloads import workload_key, workload_name
 
 SessionStatus = Literal["active", "unknown", "ended"]
-EndedReason = Literal["exited", "lost_while_offline", "node_rebooted", "node_offline_timeout"]
+EndedReason = Literal[
+    "exited", "lost_while_offline", "node_rebooted", "node_offline_timeout", "node_removed"
+]
 SessionKey = tuple[str, str, str, int, float | None]
 
 MAX_ACCUMULATE_DT_S = 60.0
@@ -127,6 +131,8 @@ class SessionTracker:
         # 상태가 바뀐 것(생성·종료·미확인·복귀). take_dirty(transitions_only=True) 가 이것만 쓴다
         self._transitions: set[SessionKey] = set()
         self._wl_transitions: set[str] = set()
+        # 등록 정보가 바뀌어 다음 보고 때 다시 판정할 열린 작업
+        self._reclassify: set[str] = set()
 
     # ------------------------------------------------------------------ 조회
 
@@ -168,6 +174,7 @@ class SessionTracker:
         self._node_boot[node] = boot
 
         seen: set[SessionKey] = set()
+        recheck: dict[str, list[ProcessReport]] = defaultdict(list)
         for gpu in report.gpus:
             for proc in gpu.processes:
                 key: SessionKey = (node, gpu.uuid, boot, proc.pid, proc.proc_start_ts)
@@ -198,6 +205,13 @@ class SessionTracker:
                     self._touch(session, proc, ts, first=True)
                 else:
                     self._touch(session, proc, ts)
+                    if session.workload_id in self._reclassify:
+                        recheck[session.workload_id].append(proc)
+
+        for workload_id, procs in recheck.items():
+            self._reclassify.discard(workload_id)
+            if workload_id in self.workloads:
+                self._redecide(self.workloads[workload_id], procs, decide)
 
         for key in list(self._open_by_node.get(node, ())):
             if key in seen:
@@ -212,6 +226,19 @@ class SessionTracker:
                     self._end(session, "exited")
 
         self._refresh_workloads(node)
+
+    def mark_reclassify(self) -> None:
+        """등록 정보가 바뀌었다. 열린 작업마다 다음 보고의 프로세스로 유형·소유자를 다시 판정한다.
+
+        세션은 처음 볼 때만 판정하므로, 이것이 없으면 매핑을 추가해도 이미 돌고 있는 작업은
+        프로세스가 끝날 때까지 미확인으로 남는다.
+        """
+        self._reclassify = {w.id for w in self.workloads.values() if w.status != "ended"}
+
+    def end_node(self, node: str, reason: EndedReason) -> None:
+        """노드를 지울 때. 열린 세션을 전부 끝낸다. 같은 노드가 다시 보고하면 새 세션으로 시작한다."""
+        self._end_all(node, reason)
+        self._node_boot.pop(node, None)
 
     def mark_node_offline(self, node: str, now: float) -> None:
         for key in self._open_by_node.get(node, ()):
@@ -326,6 +353,31 @@ class SessionTracker:
         self._wl_by_key[key] = workload
         self._wl_transitions.add(workload.id)
         return workload
+
+    def _redecide(
+        self,
+        workload: Workload,
+        procs: list[ProcessReport],
+        decide: Callable[[ProcessReport], OwnerDecision],
+    ) -> None:
+        """작업을 만들 때처럼 소유자가 나오는 프로세스를 먼저 쓴다. 바뀐 것이 있으면 전이로 저장한다."""
+        decisions = [(proc, decide(proc)) for proc in procs]
+        proc, decision = next(((p, d) for p, d in decisions if d.owner is not None), decisions[0])
+        values = {
+            "type": decision.workload_type,
+            "name": workload_name(proc, decision),
+            "owner": decision.owner,
+            "owner_source": decision.source,
+            "service_name": decision.service_name,
+            "project": decision.project,
+            "job": decision.job,
+        }
+        if all(getattr(workload, k) == v for k, v in values.items()):
+            return
+        for k, v in values.items():
+            setattr(workload, k, v)
+        workload.dirty = True
+        self._wl_transitions.add(workload.id)
 
     def _touch(self, session: Session, proc: ProcessReport, ts: float, first: bool = False) -> None:
         if not first:

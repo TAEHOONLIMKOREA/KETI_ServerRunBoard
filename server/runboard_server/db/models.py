@@ -6,7 +6,18 @@ PLAN 과 다른 점: 작업·세션 ID 는 정수 autoincrement 대신 uuid4 hex
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -107,7 +118,17 @@ class WorkloadRow(Base):
 class SessionRow(Base):
     __tablename__ = "gpu_sessions"
     __table_args__ = (
-        UniqueConstraint("gpu_uuid", "boot_id", "pid", "proc_start_ts", name="uq_session_key"),
+        # 프로세스 하나에 열린 세션은 하나. 끝난 세션은 같은 키가 또 있을 수 있다: 노드를 지운 뒤 다시
+        # 등록되거나 24시간 넘게 끊겼다 돌아왔는데 같은 프로세스가 아직 돌고 있으면 새 세션으로 시작한다
+        Index(
+            "uq_session_open_key",
+            "gpu_uuid",
+            "boot_id",
+            "pid",
+            "proc_start_ts",
+            unique=True,
+            postgresql_where=text("status <> 'ended'"),
+        ),
         Index("ix_sessions_gpu_start", "gpu_uuid", "start_ts"),
         Index("ix_sessions_status", "status"),
     )
@@ -137,3 +158,67 @@ class SessionRow(Base):
     util_sm: Mapped[int | None] = mapped_column(Integer)
     util_sum: Mapped[float] = mapped_column(Float, default=0.0)
     util_samples: Mapped[int] = mapped_column(Integer, default=0)
+
+
+# ---------------------------------------------------------------------- 등록 정보 (registry.py)
+
+
+class UserRow(Base):
+    """등록 사용자. position 순서대로 앞 8명이 대시보드 고유색을 받는다."""
+
+    __tablename__ = "users"
+
+    username: Mapped[str] = mapped_column(String(64), primary_key=True)
+    display_name: Mapped[str | None] = mapped_column(String(64))
+    email: Mapped[str | None] = mapped_column(String(128))
+    slack_id: Mapped[str | None] = mapped_column(String(64))
+    aliases: Mapped[list[str]] = mapped_column(JSON, default=list)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class AccountMappingRow(Base):
+    """(노드, uid) → 사용자. node 가 NULL 이면 모든 노드다. 사용자를 지우면 같이 지워진다."""
+
+    __tablename__ = "account_mappings"
+    __table_args__ = (
+        # NULL(모든 노드)끼리도 같은 값으로 본다 (PostgreSQL 15+)
+        UniqueConstraint(
+            "node", "uid", name="uq_account_mapping", postgresql_nulls_not_distinct=True
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    node: Mapped[str | None] = mapped_column(String(64))
+    uid: Mapped[int] = mapped_column(Integer)
+    username: Mapped[str] = mapped_column(
+        ForeignKey("users.username", ondelete="CASCADE"), index=True
+    )
+
+
+class ServiceRow(Base):
+    """공용 서비스 레지스트리. id 순서대로 매칭해서 먼저 맞는 것이 이긴다. 담당자를 지우면 담당자만 비운다."""
+
+    __tablename__ = "services"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+    match_exec_account: Mapped[str | None] = mapped_column(String(64))
+    match_container_pattern: Mapped[str | None] = mapped_column(String(200))
+    match_image_pattern: Mapped[str | None] = mapped_column(String(200))
+    owner: Mapped[str | None] = mapped_column(ForeignKey("users.username", ondelete="SET NULL"))
+    idle_exempt: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+# ---------------------------------------------------------------------- 공지 (notices.py)
+
+
+class NoticeRow(Base):
+    """헤더 아래 공지 배너. until 이 지나면 화면에서 내려가고 행은 지울 때까지 남는다."""
+
+    __tablename__ = "notices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    text: Mapped[str] = mapped_column(String(200))
+    level: Mapped[str] = mapped_column(String(16))  # info | warning
+    until: Mapped[float | None] = mapped_column(Float)  # NULL 이면 지울 때까지 보인다
+    created_ts: Mapped[float] = mapped_column(Float)
