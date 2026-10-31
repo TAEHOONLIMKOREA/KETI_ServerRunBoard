@@ -3,15 +3,18 @@
 runboard-agent run [--config PATH] [--server URL] [--token T] [--node NAME]
                    [--active-interval S] [--idle-interval S] [--idle-grace S]
                    [--fake] [--fake-gpus N] [--once] [--print]
+runboard-agent docker-proxy [--upstream PATH] [--listen PATH]
 runboard-agent version
 
 보고 주기는 적응형이다. GPU 가 동작 중이면 active-interval(기본 1초), 모두 놀면 idle-interval(기본 30초).
-규칙은 cadence.py 에 있다.
+규칙은 cadence.py 에 있다. docker-proxy 는 새 컨테이너에 실행한 계정 라벨을 붙이는 Docker 소켓 중계다
+(dockerproxy.py, 설치는 deploy/start-agent.sh).
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import signal
 import sys
@@ -25,6 +28,7 @@ from runboard_agent import __version__
 from runboard_agent.cadence import ReportCadence, is_active
 from runboard_agent.collector import make_collector
 from runboard_agent.config import DEFAULT_CONFIG_PATH, AgentConfig, load_config
+from runboard_agent.dockerproxy import OWNER_LABEL, REAL_SOCKET, DockerProxy, serve
 from runboard_agent.reporter import Reporter
 
 log = logging.getLogger("runboard_agent")
@@ -63,6 +67,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--print", dest="print_json", action="store_true", help="보고 JSON 을 stdout 에 출력"
     )
     run.add_argument("--log-level", default="INFO")
+
+    proxy = sub.add_parser(
+        "docker-proxy",
+        help="Docker 소켓 중계: 새 컨테이너에 실행한 계정 라벨을 붙인다 (root, Linux)",
+    )
+    proxy.add_argument(
+        "--upstream", default=REAL_SOCKET, help=f"dockerd 의 진짜 소켓 (기본 {REAL_SOCKET})"
+    )
+    proxy.add_argument("--listen", help="직접 열 소켓 경로. systemd 소켓 활성화로 띄우면 필요 없다")
+    proxy.add_argument(
+        "--owner-label", default=OWNER_LABEL, help=f"소유자 라벨 이름 (기본 {OWNER_LABEL})"
+    )
+    proxy.add_argument("--log-level", default="INFO")
 
     sub.add_parser("version", help="버전 출력")
     return parser
@@ -175,6 +192,8 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         stream=sys.stderr,
     )
+    if args.command == "docker-proxy":
+        return _docker_proxy(args)
     try:
         cfg = load_config(args.config, overrides=_overrides_from_args(args))
     except (FileNotFoundError, ValueError) as exc:
@@ -198,6 +217,16 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(sig, _handle_signal)
 
     return run_loop(cfg, once=args.once, print_json=args.print_json, stop=stop)
+
+
+def _docker_proxy(args: argparse.Namespace) -> int:
+    proxy = DockerProxy(args.upstream, owner_label=args.owner_label)
+    try:
+        asyncio.run(serve(proxy, listen=args.listen))
+    except ValueError as exc:
+        log.error("%s", exc)
+        return 2
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover

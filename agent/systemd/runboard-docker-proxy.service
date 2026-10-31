@@ -1,0 +1,19 @@
+[Unit]
+Description=RunBoard Docker socket relay: 새 컨테이너에 실행한 계정을 runboard.owner 라벨로 붙인다
+Requires=runboard-docker-proxy.socket
+After=runboard-docker-proxy.socket docker.socket
+
+[Service]
+Type=simple
+# 접속한 프로세스의 로그인 계정을 읽고 root 전용 진짜 소켓에 붙어야 해서 root 로 돈다
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/runboard/venv/bin/runboard-agent docker-proxy --upstream /run/runboard-docker/docker.sock
+Restart=always
+RestartSec=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

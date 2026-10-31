@@ -1,0 +1,15 @@
+[Unit]
+Description=RunBoard Docker socket relay (사용자용 /run/docker.sock)
+# 원래 Docker 소켓 자리를 같은 권한(root:docker 0660)으로 맡는다. 사용자는 Docker 를 그대로 쓴다.
+# dockerd 의 진짜 소켓은 docker.socket.d/runboard-proxy.conf 가 /run/runboard-docker/docker.sock 으로 옮긴다.
+# 설치·되돌리기: deploy/start-agent.sh (--remove-docker-proxy)
+After=docker.socket
+
+[Socket]
+ListenStream=/run/docker.sock
+SocketUser=root
+SocketGroup=docker
+SocketMode=0660
+
+[Install]
+WantedBy=sockets.target

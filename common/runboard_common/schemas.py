@@ -16,6 +16,10 @@ from pydantic import BaseModel, Field
 
 SCHEMA_VERSION = 1
 
+# 에이전트의 Docker 소켓 중계(docker-proxy)가 새 컨테이너에 붙이는 실행 계정 라벨.
+# 이 라벨이 있으면 서버는 컨테이너 이름으로 소유자를 짐작하지 않는다
+LAUNCHER_LABEL = "runboard.launcher"
+
 ProcessType = Literal["C", "G", "C+G"]
 
 
