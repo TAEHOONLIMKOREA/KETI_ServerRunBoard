@@ -1,8 +1,14 @@
 """runboard-server 진입점.
 
     runboard-server [--config runboard.yaml] [--host 0.0.0.0] [--port 8000]
+    runboard-server nodes list | rename <노드> <화면 이름> | remove <노드> [--yes]
 
-lifespan 에서 DB 복원과 10초 주기 tick 태스크를 돌린다 (APScheduler 없이 asyncio).
+명령 없이 실행하면 서버를 띄운다. DB 접속 정보는 실행 디렉터리의 settings.ini 에서 읽는다 (RUNBOARD_SETTINGS 로
+경로 변경). nodes 는 돌고 있는 서버의 관리 API 를 부르는 명령(cli.py)이라 설정 파일과 DB 를 읽지 않는다.
+
+lifespan 에서 DB 복원과 10초 주기 tick 태스크를 돌린다 (APScheduler 없이 asyncio). tick 은 연결 판정에
+더해 닫힌 5분 버킷을 집계하고 1시간마다 보존 기간이 지난 행을 지운다 (복원 때도 한 번).
+사용자·계정 매핑·공용 서비스는 DB 에서 읽고 /admin 화면(관리 API)에서 고친다.
 web_dist 가 설정돼 있으면 빌드된 프론트를 / 에서 정적 서빙한다.
 """
 
@@ -21,7 +27,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from runboard_server import __version__
+from runboard_server import __version__, cli
 from runboard_server.api import admin, ingest, query
 from runboard_server.config import ServerConfig, load_server_config
 from runboard_server.core.engine import Engine
@@ -135,7 +141,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int)
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--version", action="version", version=__version__)
+    cli.add_commands(parser)
     args = parser.parse_args(argv)
+    if args.command is not None:
+        return cli.run(args)
 
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8")  # Windows 콘솔에서 한글 로그가 깨지지 않게
