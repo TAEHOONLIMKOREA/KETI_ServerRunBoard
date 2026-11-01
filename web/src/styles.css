@@ -25,6 +25,10 @@
   --series-free: #0ca30c; /* 빈 GPU: 상태색 good */
   --series-neutral: #898781; /* 공용 서비스, 9번째 이후 사용자, 미확인(빗금) */
   --tint: 12%; /* 행 배경에 섞는 소유자 색 비율 */
+  /* 이력 차트 (노드 상세). 소유자 색과 겹치지 않게 accent·중립색 계열로 고정한다 */
+  --hist-util: var(--accent); /* 사용률 최대(선)와 평균(면)의 색 */
+  --hist-area: color-mix(in srgb, var(--hist-util) 22%, transparent); /* 사용률 평균 면 */
+  --hist-mem: var(--series-neutral); /* 메모리 사용 비율(선) */
   /* 공지 배너 (Notices.tsx). 칩·왼쪽 테두리는 수준 색에 카드색 글자, 줄 바탕은 수준 색을 카드색에 --notice-tint 만큼.
      칩 글자 대비 안내 5.2, 주의 5.0. 옅은 바탕에서 --muted 는 4.3 이라 기한 글자는 조금 진한 회색 (5.2) */
   --notice-info: var(--accent);
@@ -59,6 +63,10 @@
     --series-7: #9085e9;
     --series-8: #e66767;
     --tint: 20%;
+    /* 이력 차트: 선은 다크 accent·중립색을 그대로 쓰고, 면은 어두운 카드에서 보이게 더 진하게 */
+    --hist-util: var(--accent);
+    --hist-area: color-mix(in srgb, var(--hist-util) 30%, transparent);
+    --hist-mem: var(--series-neutral);
     /* 공지: 칩 글자(어두운 카드색) 대비 안내 6.9, 주의 8.1. 어두운 바탕은 더 섞어야 보이고 기한 글자는 --muted 로 5.6 */
     --notice-info: var(--accent);
     --notice-warn: #f59e0b;
@@ -703,4 +711,222 @@ td.notice-cell {
   min-width: 220px;
   word-break: keep-all;
   overflow-wrap: anywhere;
+}
+
+/* ---------- 이력 차트 (노드 상세): GPU 마다 작은 차트 하나, 범례는 묶음 위에 한 번 ----------
+   SVG 는 0~100 백분율 좌표를 상자에 맞춰 늘리고 선 굵기만 고정한다. 글자·십자선·툴팁은 같은 백분율 위치의 HTML 이다
+   (HistoryChart.tsx). 사용률 평균은 면, 최대는 얇은 선, 메모리 사용 비율은 중립색 선이다. */
+.hist-head {
+  display: flex;
+  align-items: center;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  margin: 14px 0 8px;
+  font-size: 12px;
+}
+.hist-head h2 {
+  margin: 0;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.seg button {
+  padding: 2px 10px;
+  border: 0;
+  background: var(--card);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.seg button + button {
+  border-left: 1px solid var(--border);
+}
+.seg button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--card);
+  font-weight: 600;
+}
+.hist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  transition: opacity 0.2s;
+}
+.hist-grid.stale {
+  opacity: 0.5;
+}
+.hkey {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  vertical-align: middle;
+}
+.hkey.avg {
+  height: 9px;
+  border-radius: 2px;
+  background: var(--hist-area);
+}
+.hkey.max {
+  border-top: 2px solid var(--hist-util);
+}
+.hkey.memory {
+  border-top: 2px solid var(--hist-mem);
+}
+.hchart {
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 14px 4px 6px;
+}
+.hchart-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 8px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.hchart-head .idx {
+  color: var(--muted);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.hchart-head .name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hchart-head .sum {
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.hchart-body {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-rows: 84px 18px;
+}
+.hchart-y,
+.hchart-x {
+  position: relative;
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.hchart-y span {
+  position: absolute;
+  right: 6px;
+  transform: translateY(-50%);
+}
+.hchart-x {
+  grid-column: 2;
+  container-type: inline-size;
+}
+.hchart-x span {
+  position: absolute;
+  top: 5px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+/* 7일 눈금 글자(날짜)는 하루 폭과 거의 같아서 좁은 차트에서는 하루 걸러 적는다. 선은 날마다 그대로 */
+@container (max-width: 280px) {
+  .hchart-x.daily span:nth-child(even) {
+    display: none;
+  }
+}
+.hchart-plot {
+  position: relative;
+  touch-action: pan-y pinch-zoom; /* 세로 스크롤·두 손가락 확대는 그대로, 가로로 끌면 툴팁이 따라간다 */
+  outline: none;
+}
+.hchart-plot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.hchart-plot svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.hchart-plot path {
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.hchart-plot path.grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.hchart-plot path.area {
+  fill: var(--hist-area);
+}
+.hchart-plot path.max {
+  stroke: var(--hist-util);
+  stroke-width: 1;
+}
+.hchart-plot path.memory {
+  stroke: var(--hist-mem);
+  stroke-width: 1.5;
+}
+.hchart-cross {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--muted);
+  pointer-events: none;
+}
+.hchart-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--card);
+  pointer-events: none;
+}
+.hchart-dot.avg {
+  background: var(--card);
+  border: 2px solid var(--hist-util);
+}
+.hchart-dot.max {
+  background: var(--hist-util);
+}
+.hchart-dot.memory {
+  background: var(--hist-mem);
+}
+.hchart-tip {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(10px);
+}
+.hchart-tip.flip {
+  transform: translateX(calc(-100% - 10px));
+}
+.hchart-tip .when {
+  color: var(--muted);
+}
+.hchart-tip .hkey {
+  margin-right: 6px;
+}
+.hchart-tip b {
+  display: inline-block;
+  min-width: 34px;
+  font-variant-numeric: tabular-nums;
 }

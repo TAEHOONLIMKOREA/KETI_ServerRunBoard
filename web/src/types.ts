@@ -203,6 +203,47 @@ export interface UserDetail {
 
 export const UNKNOWN_USER = "_unknown";
 
+// 이력 (/api/v1/nodes/{key}/history, /api/v1/gpus/{uuid}/history)
+
+export type HistoryRange = "24h" | "7d";
+export type HistoryStep = "raw" | "5m" | "1h";
+
+/** ts 는 구간 시작(원본은 측정 시각). 데이터가 없는 칸은 값이 전부 null 이다. */
+export interface HistoryPoint {
+  ts: number;
+  util_avg: number | null;
+  util_max: number | null;
+  mem_avg_mb: number | null;
+  mem_max_mb: number | null;
+  temp_max: number | null;
+  power_avg: number | null;
+  occupied_ratio: number | null; // 열린 세션이 있던 샘플의 비율 0~1
+}
+
+export interface GpuHistory {
+  gpu_uuid: string;
+  step: HistoryStep;
+  points: HistoryPoint[]; // 데이터가 있는 점만, 시각 순
+}
+
+export interface GpuSeries {
+  uuid: string;
+  index: number;
+  name: string;
+  mem_total_mb: number;
+  points: HistoryPoint[];
+}
+
+export interface NodeHistory {
+  key: string;
+  display_name: string;
+  range: HistoryRange;
+  step_s: number; // 24h 는 300 (288점), 7d 는 3600 (168점)
+  from_ts: number; // 첫 점의 구간 시작
+  to_ts: number; // 마지막 점의 구간 끝. 집계가 끝난 구간까지만
+  gpus: GpuSeries[]; // index 순. 점은 빈 칸 없는 고정 격자
+}
+
 // 관리 API (/api/v1/admin). server/runboard_server/registry.py 와 맞춘다.
 
 export interface UserFields {

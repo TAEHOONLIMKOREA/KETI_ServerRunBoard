@@ -1,14 +1,62 @@
-import { useParams } from "react-router-dom";
-import { useNode, useWorkloads } from "../api";
+import { useParams, useSearchParams } from "react-router-dom";
+import { useNode, useNodeHistory, useWorkloads } from "../api";
 import { Badges } from "../components/Badges";
+import { HistoryCharts } from "../components/HistoryChart";
 import { ConnDot, INACTIVE_TEXT } from "../components/NodeCard";
 import { ErrorBox, Loading } from "../components/Status";
 import { WorkloadTable } from "../components/Tables";
-import { fmtAgo, fmtGb, fmtMemPair, fmtPct } from "../format";
+import { fmtAgo, fmtGb, fmtMemPair, fmtPct, fmtStamp, rangeLabel } from "../format";
+import type { HistoryRange } from "../types";
 
 const OCC: Record<string, string> = { free: "비어 있음", occupied: "사용 중", service: "서비스 상주" };
 const ACT: Record<string, string> = { active: "연산 중", low: "낮은 활동", unknown: "수집 불가" };
 const HLTH: Record<string, string> = { ok: "정상", temp_warn: "온도 경고", collect_error: "수집 오류" };
+const RANGES: HistoryRange[] = ["24h", "7d"];
+
+/** GPU 별 이력 차트. 기간은 URL ?range= 에 두어 주소로 공유한다. */
+function HistorySection({ nodeKey }: { nodeKey: string }) {
+  const [params, setParams] = useSearchParams();
+  const range = RANGES.find((r) => r === params.get("range")) ?? RANGES[0];
+  const { data, error, isPlaceholderData } = useNodeHistory(nodeKey, range);
+  const step = data && (data.step_s >= 3600 ? `${data.step_s / 3600}시간` : `${data.step_s / 60}분`);
+
+  function select(next: HistoryRange) {
+    setParams(
+      (prev) => {
+        prev.set("range", next);
+        return prev;
+      },
+      { replace: true },
+    );
+  }
+
+  return (
+    <>
+      <div className="hist-head">
+        <h2>이력</h2>
+        <div className="seg" role="group" aria-label="이력 기간">
+          {RANGES.map((r) => (
+            <button key={r} type="button" aria-pressed={r === range} onClick={() => select(r)}>
+              {rangeLabel[r]}
+            </button>
+          ))}
+        </div>
+        {data && (
+          <span className="muted">
+            {step} 단위 · {fmtStamp(data.to_ts)} 까지
+          </span>
+        )}
+      </div>
+      {error ? (
+        <ErrorBox error={error} />
+      ) : data ? (
+        <HistoryCharts history={data} stale={isPlaceholderData} />
+      ) : (
+        <Loading />
+      )}
+    </>
+  );
+}
 
 export default function NodeDetail() {
   const { name: key = "" } = useParams(); // 경로의 :name 은 노드 식별자(key)
@@ -135,6 +183,8 @@ export default function NodeDetail() {
       ) : (
         <WorkloadTable workloads={workloads.data?.workloads ?? []} showNode={false} />
       )}
+
+      <HistorySection key={n.key} nodeKey={n.key} />
     </>
   );
 }

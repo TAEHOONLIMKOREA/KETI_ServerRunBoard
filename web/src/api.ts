@@ -1,9 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AccountMapping,
   AdminUser,
+  HistoryRange,
   MappingFields,
   Node,
+  NodeHistory,
   NoticeEntry,
   NoticeFields,
   Overview,
@@ -70,6 +72,21 @@ export function useWorkloads(params: Record<string, string | undefined>) {
     queryKey: ["workloads", suffix],
     queryFn: () => getJson<WorkloadsOut>(`/api/v1/workloads${suffix}`),
     ...live,
+  });
+}
+
+// 이력은 5분(7일은 1시간)마다 한 칸 늘어나므로 1분마다만 다시 읽는다.
+export const HISTORY_REFRESH_MS = 60_000;
+
+/** 노드의 GPU 별 이력. 기간을 바꾸는 동안은 앞 기간의 차트를 그대로 둔다 (isPlaceholderData). */
+export function useNodeHistory(key: string, range: HistoryRange) {
+  return useQuery({
+    queryKey: ["node-history", key, range],
+    queryFn: () => getJson<NodeHistory>(`/api/v1/nodes/${encodeURIComponent(key)}/history?range=${range}`),
+    refetchInterval: HISTORY_REFRESH_MS,
+    staleTime: HISTORY_REFRESH_MS / 2,
+    placeholderData: keepPreviousData,
+    retry: 1,
   });
 }
 

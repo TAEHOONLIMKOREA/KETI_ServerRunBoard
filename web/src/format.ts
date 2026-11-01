@@ -1,4 +1,4 @@
-import type { ConnStatus, NoticeLevel, WorkloadType } from "./types";
+import type { ConnStatus, HistoryRange, NoticeLevel, WorkloadType } from "./types";
 
 export function fmtElapsed(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
@@ -42,6 +42,9 @@ export function fmtGbHours(v: number): string {
   return `${v.toFixed(v >= 100 ? 0 : 1)} GB·h`;
 }
 
+// 이력 차트의 시각
+const clockFormat = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const dayFormat = new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric" });
 const stampFormat = new Intl.DateTimeFormat("ko-KR", {
   month: "numeric",
   day: "numeric",
@@ -51,10 +54,25 @@ const stampFormat = new Intl.DateTimeFormat("ko-KR", {
   hourCycle: "h23",
 });
 
+/** "14:05" */
+export function fmtClock(ts: number): string {
+  return clockFormat.format(ts * 1000);
+}
+
+/** "11. 2." */
+export function fmtDay(ts: number): string {
+  return dayFormat.format(ts * 1000);
+}
+
 /** "11. 2. (월) 14:05" */
 export function fmtStamp(ts: number): string {
   return stampFormat.format(ts * 1000);
 }
+
+export const rangeLabel: Record<HistoryRange, string> = {
+  "24h": "24시간",
+  "7d": "7일",
+};
 
 export const typeLabel: Record<WorkloadType, string> = {
   personal: "개인",
