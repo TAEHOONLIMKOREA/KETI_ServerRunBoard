@@ -1,4 +1,4 @@
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useNode, useNodeHistory, useWorkloads } from "../api";
 import { Badges } from "../components/Badges";
 import { HistoryCharts } from "../components/HistoryChart";
@@ -129,53 +129,60 @@ export default function NodeDetail() {
         </div>
       )}
 
-      <h2>GPU</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>모델</th>
-            <th className="num">사용률</th>
-            <th className="num">메모리</th>
-            <th className="num">온도</th>
-            <th className="num">전력</th>
-            <th>점유</th>
-            <th>활동</th>
-            <th>건강</th>
-            <th>작업</th>
-          </tr>
-        </thead>
-        <tbody>
-          {n.gpus.map((g) => (
-            <tr key={g.uuid}>
-              <td className="mono">[{g.index}]</td>
-              <td>
-                {g.name}
-                {g.mig_enabled && <span className="badge">MIG</span>}
-              </td>
-              <td className="num">{fmtPct(g.util_gpu)}</td>
-              <td className="num">{fmtMemPair(g.mem_used_mb, g.mem_total_mb)}</td>
-              <td className="num">{g.temp_c === null ? "—" : `${g.temp_c}°C`}</td>
-              <td className="num">
-                {g.power_w === null ? "—" : `${g.power_w.toFixed(0)}`}
-                {g.power_limit_w !== null && <span className="muted"> / {g.power_limit_w.toFixed(0)} W</span>}
-              </td>
-              <td>{OCC[g.occupancy]}</td>
-              <td>{ACT[g.activity]}</td>
-              <td>{HLTH[g.health]}</td>
-              <td>
-                {g.workloads.map((w) => (
-                  <div key={w.workload_id}>
-                    {w.owner_display ?? "미확인"} · {w.name}
-                    {w.mem_used_mb !== null && <span className="muted"> {fmtGb(w.mem_used_mb)}</span>}
-                  </div>
-                ))}
-                <Badges items={g.badges} />
-              </td>
+      <div className="section-head">
+        <h2>GPU</h2>
+        <Link to="/gpus" className="view-link">
+          전체 GPU 표
+        </Link>
+      </div>
+      <div className="table-wrap one-line">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>모델</th>
+              <th className="num">사용률</th>
+              <th className="num">메모리</th>
+              <th className="num">온도</th>
+              <th className="num">전력</th>
+              <th>점유</th>
+              <th>활동</th>
+              <th>건강</th>
+              <th>작업</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {n.gpus.map((g) => (
+              <tr key={g.uuid}>
+                <td className="mono">[{g.index}]</td>
+                <td>
+                  {g.name}
+                  {g.mig_enabled && <span className="badge">MIG</span>}
+                </td>
+                <td className="num">{fmtPct(g.util_gpu)}</td>
+                <td className="num">{fmtMemPair(g.mem_used_mb, g.mem_total_mb)}</td>
+                <td className="num">{g.temp_c === null ? "—" : `${g.temp_c}°C`}</td>
+                <td className="num">
+                  {g.power_w === null ? "—" : `${g.power_w.toFixed(0)}`}
+                  {g.power_limit_w !== null && <span className="muted"> / {g.power_limit_w.toFixed(0)} W</span>}
+                </td>
+                <td>{OCC[g.occupancy]}</td>
+                <td>{ACT[g.activity]}</td>
+                <td>{HLTH[g.health]}</td>
+                <td>
+                  {g.workloads.map((w) => (
+                    <div key={w.workload_id}>
+                      {w.owner_display ?? "미확인"} · {w.name}
+                      {w.mem_used_mb !== null && <span className="muted"> {fmtGb(w.mem_used_mb)}</span>}
+                    </div>
+                  ))}
+                  <Badges items={g.badges} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <h2>작업</h2>
       {workloads.error ? (

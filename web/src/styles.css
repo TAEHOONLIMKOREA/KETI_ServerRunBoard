@@ -242,6 +242,22 @@ a:hover {
   font-weight: 600;
   color: var(--text);
 }
+/* 다른 보기로 가는 작은 링크: 범례 줄 오른쪽 끝(표로 보기 ↔ 카드로 보기), 노드 상세 GPU 제목 줄 */
+.view-link {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 14px 0 8px;
+}
+.section-head h2 {
+  margin: 0;
+}
 .swatch {
   display: inline-block;
   flex: none;
@@ -292,9 +308,54 @@ a:hover {
   font-size: 12px;
 }
 .node-head .right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
   color: var(--muted);
   font-size: 12px;
+}
+/* 카드 머리 오른쪽 끝의 접기·고정 버튼 (보는 사람별, prefs.ts). 버튼 여백만큼 머리 줄이 높아지지 않게 위아래를 당긴다 */
+.card-tools {
+  display: inline-flex;
+  gap: 2px;
+  margin: -5px -6px -5px 0;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.icon-btn:hover {
+  border-color: var(--border);
+  color: var(--text);
+}
+.icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.icon-btn.pin[aria-pressed="true"] {
+  color: var(--accent);
+}
+.icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+/* 접힌 카드: 머리와 요약 한 줄만. 같은 줄의 펼친 카드 높이로 늘어나지 않는다 */
+.card.folded {
+  align-self: start;
+}
+.card.folded .node-summary {
+  padding-bottom: 2px;
 }
 .inactive {
   color: var(--orange);
@@ -332,11 +393,13 @@ a:hover {
 
 /* ---------- gpu rows ----------
    행마다 --row 에 소유자 색이 들어온다 (GpuRow.tsx). 왼쪽 테두리와 옅은 배경, 사용률 막대가 같은 색을 쓴다.
-   같은 사람의 GPU 는 노드가 달라도 같은 색이고, 빈 GPU 는 초록, 소유자 미확인은 빗금이다. */
+   같은 사람의 GPU 는 노드가 달라도 같은 색이고, 빈 GPU 는 초록, 소유자 미확인은 빗금이다.
+   칸: 번호, 막대, 사용률, 메모리, 온도, 작업. 작업 칸은 200px 아래로 줄지 않아 카드가 두 줄로 놓일 때(카드 폭 620px 안팎)는
+   막대가 줄어든다. */
 .gpu-row {
   --row: var(--series-neutral);
   display: grid;
-  grid-template-columns: 34px minmax(90px, 160px) 44px 92px minmax(0, 1fr);
+  grid-template-columns: 34px minmax(90px, 160px) 44px 92px 44px minmax(200px, 1fr);
   gap: 10px;
   align-items: center;
   margin: 4px 0;
@@ -357,6 +420,9 @@ a:hover {
 @media (max-width: 700px) {
   .gpu-row {
     grid-template-columns: 30px 1fr 40px 80px;
+  }
+  .gpu-row .temp {
+    display: none; /* 좁은 화면은 한 줄에 사용률·메모리까지만. 온도는 노드 상세와 전체 GPU 표에서 본다 */
   }
   .gpu-row .wl {
     grid-column: 1 / -1;
@@ -389,9 +455,33 @@ a:hover {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* 온도. GPU 행에서는 흐린 글자. 경고 온도(건강 축 temp_warn)면 GPU 행과 전체 GPU 표 모두 주황 글자이고 행 색은 그대로 */
+.gpu-row .temp {
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.temp.warn {
+  color: var(--orange);
+  font-weight: 600;
+}
 .wl {
   min-width: 0;
 }
+/* GPU 행의 작업 칸은 크기 컨테이너다 (칸 폭은 그리드가 정하므로 내용과 무관하다). 카드 두 장이 나란히 놓여 칸이 좁으면
+   공용 서비스 줄은 경과 시간을 빼서 서비스 이름이 보이게 한다. 상주 서비스의 경과 시간은 작업 페이지와 전체 GPU 표에 있다 */
+.gpu-row .wl {
+  container-type: inline-size;
+}
+@container (max-width: 260px) {
+  .wl-item.service .elapsed {
+    display: none;
+  }
+}
+/* 작업 줄은 늘 한 줄이고 칸 밖으로 나가지 않는다. 길면 작업 이름부터 줄이고, 이름을 다 줄여도 넘칠 때만
+   (좁은 칸의 공용 서비스 줄) 소유자 이름을 줄인다. 작업 이름은 폭 0 에서 출발해 남는 자리만큼 제 글자 폭까지 늘어나므로
+   소유자가 먼저 줄어드는 일이 없다 (대시보드의 공용 서비스 줄은 아래 예외). 경과 시간과 뱃지는 줄이지 않는다 */
 .wl-item {
   display: flex;
   align-items: center;
@@ -400,15 +490,24 @@ a:hover {
   white-space: nowrap;
 }
 .wl-item .owner {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 600;
 }
 .wl-item .owner.unknown {
   color: var(--orange);
 }
 .wl-item .wname {
+  flex: 1 1 0;
+  max-width: max-content;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* 공용 서비스 줄은 서비스 이름이 소유자(담당자)만큼 중요하다. 이름이 0 까지 줄기 전에 담당자와 나눠 줄어든다 */
+.gpu-row .wl-item.service .wname {
+  flex-basis: 3.5em;
 }
 .wl-item .elapsed {
   color: var(--muted);
@@ -525,6 +624,100 @@ h2 {
   color: var(--muted);
   padding: 30px 0;
   text-align: center;
+}
+
+/* ---------- 전체 GPU 표 (/gpus) ----------
+   행마다 --row 에 소유자 색이 들어온다 (Gpus.tsx). 대시보드 GPU 행처럼 왼쪽 띠, 옅은 바탕, 사용률 막대가 같은 색이고
+   소유자 미확인은 빗금이다. 띠는 첫 칸의 배경으로 그린다 (테두리로 그리면 표 테두리와 겹쳐 머리 줄과 어긋난다). */
+.gpu-table td {
+  vertical-align: middle;
+  white-space: nowrap; /* GPU 한 장은 한 줄. 화면보다 넓으면 표만 옆으로 스크롤한다 */
+}
+.gpu-table tbody tr {
+  --row: var(--series-neutral);
+  background: color-mix(in srgb, var(--row) var(--tint), transparent);
+}
+.gpu-table tbody tr.unknown {
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--row) var(--tint), transparent) 0 7px,
+    transparent 7px 14px
+  );
+}
+.gpu-table tbody tr.offline {
+  opacity: 0.65;
+}
+.gpu-table tbody td:first-child {
+  padding-left: 14px;
+  background: linear-gradient(var(--row), var(--row)) left / 4px 100% no-repeat;
+}
+.gpu-table tbody tr.unknown td:first-child {
+  background-image: repeating-linear-gradient(var(--row) 0 5px, transparent 5px 9px);
+}
+.gpu-table .meta {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.gpu-table .util {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.gpu-table .util .bar {
+  flex: none;
+  width: 64px;
+}
+.gpu-table .util span {
+  min-width: 34px;
+}
+.gpu-table .wl {
+  max-width: 360px;
+}
+/* 열 머리는 칸 전체가 정렬 버튼이다. 화살표 자리는 늘 비워 두어 정렬을 바꿔도 열 폭이 흔들리지 않는다.
+   숫자 열은 화살표를 글자 왼쪽에 두어 머리 글자가 숫자와 같은 오른쪽 끝에 선다 */
+.gpu-table th.sortable {
+  padding: 0;
+}
+.gpu-table th.sortable button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.gpu-table th:first-child button {
+  padding-left: 14px; /* 첫 칸 띠 자리만큼 본문과 맞춘다 */
+}
+.gpu-table th.num button {
+  flex-direction: row-reverse;
+}
+.gpu-table th.sortable button:hover,
+.gpu-table th.sortable button.active {
+  color: var(--text);
+}
+.gpu-table th.sortable button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.gpu-table th.sortable .icon {
+  width: 12px;
+  height: 12px;
+  visibility: hidden;
+}
+.gpu-table th.sortable button.active .icon {
+  visibility: visible;
+}
+.gpu-table th.sortable button:hover:not(.active) .icon {
+  visibility: visible;
+  opacity: 0.4;
 }
 
 /* ---------- 관리 (/admin): 헤더 링크, 탭, 폼, 버튼 ---------- */
@@ -700,6 +893,14 @@ h2 {
 }
 .table-wrap {
   overflow-x: auto;
+}
+/* 좁은 화면에서 데이터 표(노드 상세 GPU·작업, 세션)는 칸 안에서 줄을 바꾸지 않고 표만 옆으로 스크롤한다.
+   줄을 바꾸게 두면 표를 화면 폭에 맞추느라 한글을 글자마다 끊어 행이 몇 배로 높아진다 */
+@media (max-width: 700px) {
+  .table-wrap.one-line th,
+  .table-wrap.one-line td {
+    white-space: nowrap;
+  }
 }
 td.nowrap {
   white-space: nowrap;

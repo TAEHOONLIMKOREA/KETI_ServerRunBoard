@@ -33,9 +33,22 @@ export function fmtPct(v: number | null | undefined): string {
   return v === null || v === undefined ? "—" : `${v}%`;
 }
 
+// 24시간제는 hourCycle "h23" 으로 적는다. hour12: false 는 엔진에 따라 자정을 24시로 적는다.
+// 표의 시각 (toLocaleString 기본과 같은 칸들)
+const tsFormat = new Intl.DateTimeFormat("ko-KR", {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "numeric",
+  second: "numeric",
+  hourCycle: "h23",
+});
+
+/** "2026. 11. 1. 0시 5분 7초" */
 export function fmtTs(ts: number | null | undefined): string {
   if (!ts) return "—";
-  return new Date(ts * 1000).toLocaleString("ko-KR", { hour12: false });
+  return tsFormat.format(ts * 1000);
 }
 
 export function fmtGbHours(v: number): string {

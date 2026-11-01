@@ -1,5 +1,5 @@
 // 대시보드 행 색. styles.css 의 --series-* 변수를 가리킨다.
-// 사용자: 서버가 준 owner_slot(runboard.yaml users 순서, 앞 8명)으로 범주색. 그 밖의 사용자와 공용 서비스는 중립색.
+// 사용자: 서버가 준 owner_slot(관리 화면의 사용자 순서, 앞 8명)으로 범주색. 그 밖의 사용자와 공용 서비스는 중립색.
 // 소유자 미확인: 빗금. 빈 GPU: 초록(상태색). 색은 보조 수단이고 이름은 항상 같이 적는다.
 import type { Gpu, Overview, User, WorkloadOnGpu } from "./types";
 
@@ -32,13 +32,17 @@ export function userPaint(u: Pick<User, "username" | "color_slot">): Paint {
   return color ? { kind: "user", color } : { kind: "neutral", color: NEUTRAL };
 }
 
-/** GPU 행 하나의 색. 사람이 쓰는 작업이 있으면 그 사람, 없으면 미확인, 그다음 공용 서비스. */
-export function gpuPaint(gpu: Gpu): Paint {
-  if (gpu.workloads.length === 0) return FREE;
+/** GPU 행의 색을 정하는 작업. 사람이 쓰는 작업이 있으면 그것, 없으면 미확인, 그다음 공용 서비스. 빈 GPU 는 null. */
+export function gpuOwner(gpu: Gpu): WorkloadOnGpu | null {
+  if (gpu.workloads.length === 0) return null;
   const person = gpu.workloads.find((w) => w.type !== "shared_service" && w.owner !== null);
-  if (person) return workloadPaint(person);
-  const unknown = gpu.workloads.find((w) => w.owner === null);
-  return workloadPaint(unknown ?? gpu.workloads[0]);
+  return person ?? gpu.workloads.find((w) => w.owner === null) ?? gpu.workloads[0];
+}
+
+/** GPU 행 하나의 색 (gpuOwner 의 색). 작업이 없으면 빈 GPU. */
+export function gpuPaint(gpu: Gpu): Paint {
+  const owner = gpuOwner(gpu);
+  return owner ? workloadPaint(owner) : FREE;
 }
 
 export interface LegendEntry {

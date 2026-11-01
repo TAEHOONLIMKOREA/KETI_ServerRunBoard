@@ -2,6 +2,7 @@ import { Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
 import Admin from "./pages/Admin";
 import Dashboard from "./pages/Dashboard";
+import Gpus from "./pages/Gpus";
 import NodeDetail from "./pages/NodeDetail";
 import UserDetail from "./pages/UserDetail";
 import Users from "./pages/Users";
@@ -12,6 +13,7 @@ export default function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/gpus" element={<Gpus />} />
         <Route path="/nodes/:name" element={<NodeDetail />} />
         <Route path="/users" element={<Users />} />
         <Route path="/users/:username" element={<UserDetail />} />
