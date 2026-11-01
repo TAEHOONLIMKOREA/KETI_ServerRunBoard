@@ -11,7 +11,7 @@ import configparser
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import yaml
 from pydantic import BaseModel, Field
@@ -22,6 +22,25 @@ SETTINGS_FILE = "settings.ini"  # 실행 디렉터리 기준. RUNBOARD_SETTINGS 
 _DB_SECTION = "postgres_db"
 _DB_KEYS = ("host", "port", "dbname", "user", "password")
 _MOVED_TO_DB = ("users", "account_mappings", "services")  # 예전 YAML 섹션. 지금은 DB 의 등록 정보
+_RETENTION_ENV = {
+    "raw_days": "RUNBOARD_RETENTION_RAW_DAYS",
+    "agg_days": "RUNBOARD_RETENTION_AGG_DAYS",
+    "sessions_days": "RUNBOARD_RETENTION_SESSIONS_DAYS",
+}
+# 보존 기간(일). 0 보다 크고 유한해야 한다. 무한이나 터무니없이 큰 값은 기한이 bucket_ts(BIGINT) 범위를
+# 넘으므로 100년을 상한으로 둔다. '계속 보존' 은 없으니 길게 두려면 상한까지 쓴다
+RETENTION_MAX_DAYS = 36500
+Days = Annotated[float, Field(gt=0, le=RETENTION_MAX_DAYS, allow_inf_nan=False)]
+
+
+class RetentionSection(BaseModel):
+    """보존 기간(일). 서버가 시작할 때와 1시간마다 지난 행을 지운다. 노드·GPU 행은 남긴다."""
+
+    raw_days: Days = Field(default=7, description="원본 샘플 (gpu_samples)")
+    agg_days: Days = Field(default=90, description="5분 집계 (gpu_samples_5m)")
+    sessions_days: Days = Field(
+        default=365, description="끝난 세션, 그리고 세션이 다 지워진 끝난 작업"
+    )
 
 
 class ServerSection(BaseModel):
@@ -37,6 +56,7 @@ class ServerSection(BaseModel):
         default="Server_",
         description="처음 본 노드의 화면 이름 접두어. Server_1, Server_2 … 순으로 붙는다",
     )
+    retention: RetentionSection = Field(default_factory=RetentionSection)
 
 
 class AuthSection(BaseModel):
@@ -147,6 +167,11 @@ def load_server_config(
     _require_postgres(cfg.server.db_url)
     if env.get("RUNBOARD_PERSIST_INTERVAL"):
         cfg.server.persist_interval_s = float(env["RUNBOARD_PERSIST_INTERVAL"])
+    retention = {key: env[name] for key, name in _RETENTION_ENV.items() if env.get(name)}
+    if retention:  # 0 이하(모든 행이 기한을 넘긴다)나 inf 를 막도록 YAML 값과 같은 검증을 거친다
+        cfg.server.retention = RetentionSection.model_validate(
+            cfg.server.retention.model_dump() | retention
+        )
     if env.get("RUNBOARD_WEB_DIST"):
         cfg.server.web_dist = env["RUNBOARD_WEB_DIST"]
     if env.get("RUNBOARD_SHARED_TOKEN"):

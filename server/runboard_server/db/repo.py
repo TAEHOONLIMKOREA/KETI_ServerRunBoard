@@ -7,22 +7,27 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from collections.abc import Iterable, Iterator
+import math
+from collections import defaultdict
+from collections.abc import Collection, Iterable, Iterator
 from contextlib import contextmanager
 
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import create_engine, delete, func, inspect, select, text
+from sqlalchemy import create_engine, delete, exists, func, inspect, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy.orm import sessionmaker
 
 from runboard_common.schemas import GpuReport, NodeInfo
+from runboard_server.core.history import BUCKET_S, Point, Sample, aggregate, bucket_start
 from runboard_server.core.sessions import Session, Workload
 from runboard_server.core.state import GpuState, NodeState, free_name
 from runboard_server.db.models import (
     AccountMappingRow,
     Base,
     GpuRow,
+    GpuSample5mRow,
     GpuSampleRow,
     NodeRow,
     NoticeRow,
@@ -47,11 +52,22 @@ log = logging.getLogger(__name__)
 
 _WORKLOAD_FIELDS = [f.name for f in dataclasses.fields(Workload) if f.name != "dirty"]
 _SESSION_FIELDS = [f.name for f in dataclasses.fields(Session) if f.name != "dirty"]
+_SAMPLE_COLUMNS = [getattr(GpuSampleRow, f.name) for f in dataclasses.fields(Sample)]
+_POINT_FIELDS = [f.name for f in dataclasses.fields(Point) if f.name != "ts"]  # 5분 행의 값 열
 
 # create_all 은 기존 표에 열을 더하지 않는다. 나중에 생긴 열은 전부 NULL 허용이라 ADD COLUMN 만 하면 된다
 _ADDED_COLUMNS = {
     "nodes": {"hostname": "VARCHAR(64)", "display_name": "VARCHAR(64)", "seq": "INTEGER"},
+    "gpu_samples": {"occupied": "BOOLEAN"},
 }
+
+
+def _bucket_bound(ts: float) -> int:
+    """bucket_ts(정수 열)와 비교할 경계. 실수와 비교하면 PostgreSQL 이 열 쪽을 바꿔 인덱스를 못 쓴다.
+
+    정수 b 에 대해 b < ts 와 b < ceil(ts), b >= ts 와 b >= ceil(ts) 는 같은 뜻이다.
+    """
+    return math.ceil(ts)
 
 
 def _entries(model: type[BaseModel], rows: Iterable) -> list:
@@ -136,7 +152,10 @@ class Repository:
             if row is not None:
                 row.conn_status = status
 
-    def insert_samples(self, node: NodeState, ts: float, received_ts: float) -> int:
+    def insert_samples(
+        self, node: NodeState, ts: float, received_ts: float, busy: Collection[str]
+    ) -> int:
+        """busy 는 지금 열린 세션이 있는 GPU 의 uuid. 샘플의 occupied 가 된다."""
         rows = [
             GpuSampleRow(
                 gpu_uuid=uuid,
@@ -147,6 +166,7 @@ class Repository:
                 mem_used_mb=g.report.mem_used_mb,
                 temp_c=g.report.temp_c,
                 power_w=g.report.power_w,
+                occupied=uuid in busy,
             )
             for uuid, g in node.gpus.items()
         ]
@@ -382,6 +402,136 @@ class Repository:
         with self._sessions.begin() as db:
             db.execute(delete(GpuRow).where(GpuRow.node_name == key))
             db.execute(delete(NodeRow).where(NodeRow.name == key))
+
+    # ------------------------------------------------------------------ 이력: 5분 집계·보존 정리
+
+    def aggregate_samples(self, start: int, end: int) -> int:
+        """버킷 경계 [start, end) 의 원본 샘플을 GPU·5분 버킷별로 묶어 gpu_samples_5m 에 쓴다.
+
+        같은 구간을 다시 해도 결과가 같다 (있는 행은 덮어쓴다). 쓴 행 수를 돌려준다.
+        """
+        groups: dict[tuple[str, int], list[Sample]] = defaultdict(list)
+        query = select(GpuSampleRow.gpu_uuid, *_SAMPLE_COLUMNS).where(
+            GpuSampleRow.ts >= start, GpuSampleRow.ts < end
+        )
+        with self.engine.connect() as conn:
+            for uuid, *values in conn.execute(query):
+                sample = Sample(*values)
+                groups[(uuid, bucket_start(sample.ts))].append(sample)
+        rows = []
+        for (uuid, bucket), samples in groups.items():
+            point = aggregate(bucket, samples)
+            rows.append(
+                {"gpu_uuid": uuid, "bucket_ts": bucket}
+                | {f: getattr(point, f) for f in _POINT_FIELDS}
+            )
+        if rows:
+            stmt = pg_insert(GpuSample5mRow)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["gpu_uuid", "bucket_ts"],
+                set_={f: stmt.excluded[f] for f in _POINT_FIELDS},
+            )
+            with self.engine.begin() as conn:
+                conn.execute(stmt, rows)
+        return len(rows)
+
+    def aggregation_resume(self) -> int | None:
+        """집계를 이어 할 버킷 시작. 마지막 집계 버킷의 끝, 집계가 없으면 가장 오래된 원본 샘플의 버킷.
+
+        둘 다 없으면 None.
+        """
+        with self.engine.connect() as conn:
+            last = conn.scalar(select(func.max(GpuSample5mRow.bucket_ts)))
+            if last is not None:
+                return last + BUCKET_S
+            first = conn.scalar(select(func.min(GpuSampleRow.ts)))
+        return None if first is None else bucket_start(first)
+
+    def purge(self, raw_before: float, agg_before: float, sessions_before: float) -> dict[str, int]:
+        """보존 기간이 지난 행을 지우고 표별로 지운 수를 돌려준다. 노드·GPU 행은 지우지 않는다.
+
+        원본 샘플은 ts, 5분 집계는 bucket_ts 로 본다. 세션은 끝난 것 중 end_ts 가 기한 전인 것만,
+        작업은 끝났고 end_ts 가 기한 전이며 남은 세션이 없는 것만 지운다 (세션이 작업을 참조한다).
+        """
+        statements = {
+            "gpu_samples": delete(GpuSampleRow).where(GpuSampleRow.ts < raw_before),
+            "gpu_samples_5m": delete(GpuSample5mRow).where(
+                GpuSample5mRow.bucket_ts < _bucket_bound(agg_before)
+            ),
+            "gpu_sessions": delete(SessionRow).where(
+                SessionRow.status == "ended", SessionRow.end_ts < sessions_before
+            ),
+            "workloads": delete(WorkloadRow).where(
+                WorkloadRow.status == "ended",
+                WorkloadRow.end_ts < sessions_before,
+                ~exists().where(SessionRow.workload_id == WorkloadRow.id),
+            ),
+        }
+        with self.engine.begin() as conn:
+            return {table: conn.execute(stmt).rowcount for table, stmt in statements.items()}
+
+    # ------------------------------------------------------------------ 이력 조회
+
+    def has_gpu(self, gpu_uuid: str) -> bool:
+        with self._sessions() as db:
+            return db.get(GpuRow, gpu_uuid) is not None
+
+    def node_gpus(self, key: str) -> list[GpuReport]:
+        """노드의 GPU (gpus 표, index 순). 지금 보고에서 빠진 GPU 도 들어 있다. 측정값은 비어 있다.
+
+        빠진 GPU 는 예전 index 를 그대로 가지므로 뒤 GPU 의 번호가 당겨지면 같은 index 가 둘이 된다.
+        그때도 요청마다 순서가 같도록 uuid 로 가른다.
+        """
+        with self._sessions() as db:
+            rows = db.scalars(
+                select(GpuRow).where(GpuRow.node_name == key).order_by(GpuRow.index, GpuRow.uuid)
+            ).all()
+            return [
+                GpuReport(
+                    index=g.index,
+                    uuid=g.uuid,
+                    name=g.name,
+                    mem_total_mb=g.memory_total_mb,
+                    mig_enabled=g.mig_enabled,
+                )
+                for g in rows
+            ]
+
+    def samples(self, gpu_uuid: str, start: float, end: float) -> list[Sample]:
+        """GPU 하나의 원본 샘플 [start, end), 시각 순."""
+        query = (
+            select(*_SAMPLE_COLUMNS)
+            .where(
+                GpuSampleRow.gpu_uuid == gpu_uuid,
+                GpuSampleRow.ts >= start,
+                GpuSampleRow.ts < end,
+            )
+            .order_by(GpuSampleRow.ts)
+        )
+        with self.engine.connect() as conn:
+            return [Sample(*row) for row in conn.execute(query)]
+
+    def buckets(
+        self, gpu_uuids: Collection[str], start: float, end: float
+    ) -> dict[str, list[Point]]:
+        """GPU 별 5분 집계 점. bucket_ts 가 [start, end) 인 것, 시각 순. 행이 없는 GPU 는 빈 목록."""
+        out: dict[str, list[Point]] = {uuid: [] for uuid in gpu_uuids}
+        if not out:
+            return out
+        values = [getattr(GpuSample5mRow, f) for f in _POINT_FIELDS]
+        query = (
+            select(GpuSample5mRow.gpu_uuid, GpuSample5mRow.bucket_ts, *values)
+            .where(
+                GpuSample5mRow.gpu_uuid.in_(list(out)),
+                GpuSample5mRow.bucket_ts >= _bucket_bound(start),
+                GpuSample5mRow.bucket_ts < _bucket_bound(end),
+            )
+            .order_by(GpuSample5mRow.bucket_ts)
+        )
+        with self.engine.connect() as conn:
+            for uuid, bucket, *rest in conn.execute(query):
+                out[uuid].append(Point(bucket, *rest))
+        return out
 
     # ------------------------------------------------------------------ 조회·테스트 보조
 

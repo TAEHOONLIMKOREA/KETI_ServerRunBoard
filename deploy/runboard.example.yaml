@@ -9,6 +9,14 @@ server:
   host: 0.0.0.0
   port: 8000
   display_name_prefix: Server_         # 처음 본 노드의 화면 이름 접두어 (Server_1, Server_2 …). 이름은 관리 화면 '노드' 탭에서 바꾼다
+  retention:
+    # 보존 기간(일). 서버가 시작할 때와 1시간마다 지난 행을 지운다. 노드·GPU 행은 지우지 않는다.
+    # 값은 0 보다 크고 36500(100년) 이하다. 무한(.inf)은 받지 않으니 오래 두려면 큰 값을 적는다.
+    # 환경변수 RUNBOARD_RETENTION_RAW_DAYS, RUNBOARD_RETENTION_AGG_DAYS, RUNBOARD_RETENTION_SESSIONS_DAYS 가 이 값을 덮어쓴다.
+    # 지운 자리는 PostgreSQL 이 다시 쓰지만 파일 크기는 바로 줄지 않는다. 줄이려면 VACUUM FULL 을 한다
+    raw_days: 7                        # 원본 샘플 (persist_interval 간격). GPU 이력 raw 조회와 5분 집계의 재료
+    agg_days: 90                       # 5분 집계. 노드 상세 이력(24시간·7일)이 이것을 읽는다
+    sessions_days: 365                 # 끝난 세션. 작업은 끝났고 남은 세션이 없을 때 같은 기한으로 지운다
 
 auth:
   # 등록 토큰. 이 토큰으로 보고하는 에이전트는 이름을 미리 등록하지 않아도 참여한다 (서버 재시작 불필요).

@@ -203,3 +203,44 @@ class UserDetailOut(BaseModel):
     generated_ts: float
     user: UserOut
     workloads: list[WorkloadOut]
+
+
+class HistoryPoint(BaseModel):
+    """이력 한 점. ts 는 구간 시작(원본은 측정 시각)이다. 데이터가 없는 칸은 값이 전부 null 이다."""
+
+    ts: float
+    util_avg: float | None = Field(description="GPU 사용률 평균 %. 원본은 그 샘플 값")
+    util_max: int | None
+    mem_avg_mb: float | None
+    mem_max_mb: int | None
+    temp_max: int | None
+    power_avg: float | None
+    occupied_ratio: float | None = Field(
+        description="열린 세션(작업)이 있던 샘플의 비율 0~1. 원본은 0 또는 1"
+    )
+
+
+class GpuHistoryOut(BaseModel):
+    gpu_uuid: str
+    step: str = Field(description="raw | 5m | 1h")
+    points: list[HistoryPoint] = Field(description="데이터가 있는 점만, 시각 순")
+
+
+class GpuSeries(BaseModel):
+    uuid: str
+    index: int
+    name: str
+    mem_total_mb: int
+    points: list[HistoryPoint]
+
+
+class NodeHistoryOut(BaseModel):
+    key: str
+    display_name: str
+    range: str = Field(description="24h | 7d")
+    step_s: int = Field(description="점 간격(초). 24h 는 300 (288점), 7d 는 3600 (168점)")
+    from_ts: float = Field(description="첫 점의 구간 시작")
+    to_ts: float = Field(description="마지막 점의 구간 끝. 집계가 끝난(닫힌) 구간까지만 담는다")
+    gpus: list[GpuSeries] = Field(
+        description="gpus 표의 GPU, index 순 (같으면 uuid 순). 점은 빈 칸 없이 고정 격자"
+    )

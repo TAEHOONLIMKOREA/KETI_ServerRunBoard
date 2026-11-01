@@ -1,11 +1,12 @@
 """보고 1건을 처리하는 파이프라인과 조회 뷰 (PLAN 4.5).
 
 ingest: 검증된 보고 → 시계 오차 검사 → 최신 상태 갱신 → 유형·소유자 판정 → 세션·작업 전이 → 영속화
-tick  : 연결 판정 → offline 노드의 세션을 unknown 으로 → 24시간 초과 정리 → 영속화
+tick  : 연결 판정 → offline 노드의 세션을 unknown 으로 → 24시간 초과 정리 → 영속화 → 5분 집계·보존 정리
 관리  : 등록 정보 교체(set_registry), 공지 교체(set_notices), 노드 이름 변경·삭제
+이력  : 노드·GPU 이력 조회 (5분 집계 gpu_samples_5m, 원본 gpu_samples)
 공지  : 메모리 사본만 읽는다. overview 는 1초마다 불리므로 DB 를 읽지 않고 그때의 시각으로 기한을 거른다
 
-락 하나로 직렬화한다. 서버 프로세스는 하나다.
+락 하나로 직렬화한다. 서버 프로세스는 하나다. 집계·보존 정리와 이력 조회는 DB 만 보므로 락 밖에서 한다.
 """
 
 from __future__ import annotations
@@ -26,6 +27,20 @@ from runboard_server.core.detector import (
     occupancy,
     summary_color,
 )
+from runboard_server.core.history import (
+    BUCKET_S,
+    DAY_S,
+    RANGES,
+    STEP_S,
+    Point,
+    Range,
+    Step,
+    bucket_start,
+    closed_until,
+    fill,
+    raw_point,
+    rollup,
+)
 from runboard_server.core.owner import OwnerResolver
 from runboard_server.core.sessions import Session, SessionTracker, Workload
 from runboard_server.core.state import GpuState, NodeState, StateStore, free_name, node_key
@@ -33,8 +48,12 @@ from runboard_server.errors import Conflict
 from runboard_server.notices import NoticeEntry, banner_order
 from runboard_server.registry import Registry
 from runboard_server.views import (
+    GpuHistoryOut,
     GpuOut,
+    GpuSeries,
+    HistoryPoint,
     NodeBrief,
+    NodeHistoryOut,
     NodeOut,
     NoticeOut,
     OverviewOut,
@@ -51,6 +70,13 @@ from runboard_server.views import (
 log = logging.getLogger(__name__)
 
 UNKNOWN_USER = "_unknown"
+# 밀린 집계를 한 번에 읽는 범위. 오래 밀려도 원본 샘플을 한꺼번에 메모리에 올리지 않는다
+AGG_CHUNK_S = 6 * 3600
+PURGE_INTERVAL_S = 3600.0
+
+
+def _history_point(point: Point) -> HistoryPoint:
+    return HistoryPoint.model_validate(point, from_attributes=True)
 
 
 class Engine:
@@ -72,6 +98,8 @@ class Engine:
             offline_close_after_s=self.th.offline_close_after_s,
         )
         self.lock = threading.RLock()
+        self._agg_next: int | None = None  # 다음에 집계할 5분 버킷의 시작. None 이면 DB 에서 찾는다
+        self._purge_due = 0.0  # 다음 보존 정리 시각 (엔진 시계)
         # 공지: 기한이 지난 것까지 전부, 배너 순서. restore 와 관리 API 가 DB 에서 다시 읽어 넣는다
         self.notices: list[NoticeEntry] = []
         if registry is None:
@@ -102,6 +130,10 @@ class Engine:
             len(sessions),
             len(notices),
         )
+        try:  # 꺼져 있던 동안 밀린 집계를 채우고 보존 기간이 지난 행을 지운다
+            self._maintain(self.clock())
+        except Exception:
+            log.exception("시작 때 이력 집계·보존 정리 실패. tick 에서 다시 한다")
 
     def ingest(self, report: NodeReport, received_ts: float | None = None) -> None:
         with self.lock:
@@ -214,6 +246,7 @@ class Engine:
             workloads, sessions = self.tracker.take_dirty()
             if self.repo is not None:
                 self.repo.save(workloads, sessions)
+        self._maintain(now)
 
     def _persist(self, node: NodeState, ts: float, received: float) -> None:
         """보고마다 호출된다. 샘플·노드 행과 누적값은 persist_interval 마다, 상태 전이는 바로 쓴다.
@@ -232,9 +265,55 @@ class Engine:
             self.repo.upsert_node(node)
             node.info_dirty = False
         if due:
-            self.repo.insert_samples(node, ts, received)
+            busy = {s.gpu_uuid for s in self.tracker.open_sessions(node.key)}
+            self.repo.insert_samples(node, ts, received, busy)
             node.last_sample_persist_ts = ts
         self.repo.save(workloads, sessions)
+
+    # ------------------------------------------------------------------ 이력 집계·보존 정리
+
+    def _maintain(self, now: float) -> None:
+        """닫힌 5분 버킷을 집계하고, 1시간마다 보존 기간이 지난 행을 지운다.
+
+        DB 만 보므로 락 밖에서 해 보고 처리를 막지 않는다. restore 와 tick 만 부르고 둘은 겹치지 않는다.
+        집계가 먼저다. 아직 집계하지 않은 원본 샘플이 있으면 지우기 전에 5분 행으로 옮긴다.
+        """
+        if self.repo is None:
+            return
+        self._aggregate(now)
+        if now >= self._purge_due:
+            self._purge(now)
+            self._purge_due = now + PURGE_INTERVAL_S
+
+    def _aggregate(self, now: float) -> None:
+        """마지막으로 집계한 버킷 다음부터 지금 닫힌 버킷까지. 버킷은 끝나고 clock_skew_max_s 가 더 지나야 닫힌다.
+
+        시계가 그만큼 어긋난 에이전트의 샘플은 측정 시각으로 저장되므로 버킷이 끝난 뒤에 들어올 수 있다.
+        더 어긋나면 수신 시각으로 저장된다 (ingest). 밀린 구간은 AGG_CHUNK_S 씩 나눠 읽는다.
+        """
+        until = closed_until(now, BUCKET_S, self.th.clock_skew_max_s)
+        if self._agg_next is None:
+            resume = self.repo.aggregation_resume()
+            # 5분 행도 agg_days 가 지나면 지우므로 그보다 오래된 샘플은 집계하지 않는다
+            oldest = bucket_start(now - self.cfg.server.retention.agg_days * DAY_S)
+            self._agg_next = until if resume is None else max(resume, oldest)
+        start, rows = self._agg_next, 0
+        while self._agg_next < until:
+            end = min(until, self._agg_next + AGG_CHUNK_S)
+            rows += self.repo.aggregate_samples(self._agg_next, end)
+            self._agg_next = end
+        if until - start > BUCKET_S:
+            log.info("밀린 5분 집계: 버킷 %d개, 행 %d개", (until - start) // BUCKET_S, rows)
+
+    def _purge(self, now: float) -> None:
+        keep = self.cfg.server.retention
+        deleted = self.repo.purge(
+            raw_before=now - keep.raw_days * DAY_S,
+            agg_before=now - keep.agg_days * DAY_S,
+            sessions_before=now - keep.sessions_days * DAY_S,
+        )
+        if any(deleted.values()):
+            log.info("보존 기간 정리: %s", ", ".join(f"{t} {n}행" for t, n in deleted.items() if n))
 
     # ------------------------------------------------------------------ 읽기 경로
 
@@ -341,6 +420,70 @@ class Engine:
                 return None
             workloads = self.workloads_view(now, owner=username).workloads
             return UserDetailOut(generated_ts=now, user=row, workloads=workloads)
+
+    # ------------------------------------------------------------------ 이력 조회
+
+    def gpu_history(self, uuid: str, start: float, end: float, step: Step) -> GpuHistoryOut | None:
+        """GPU 하나의 [start, end) 이력. 데이터가 있는 점만 돌려준다. gpus 표에 없는 GPU 면 None.
+
+        raw 는 원본 샘플, 5m·1h 는 그 구간에 걸친 버킷이다. DB 만 읽으므로 락을 잡지 않는다.
+        """
+        if self.repo is None or not self.repo.has_gpu(uuid):
+            return None
+        if step == "raw":
+            points = [raw_point(s) for s in self.repo.samples(uuid, start, end)]
+        else:
+            size = STEP_S[step]
+            points = self.repo.buckets([uuid], bucket_start(start, size), end)[uuid]
+            if size != BUCKET_S:
+                points = rollup(points, size)
+        return GpuHistoryOut(gpu_uuid=uuid, step=step, points=[_history_point(p) for p in points])
+
+    def node_history(
+        self, key: str, range_: Range, now: float | None = None
+    ) -> NodeHistoryOut | None:
+        """노드의 GPU 별 이력. 24h 는 5분 288점, 7d 는 1시간 168점이고 집계까지 끝난 마지막 구간에서 끝난다.
+
+        닫힌 버킷은 다음 tick 이 집계하므로 그 사이(최대 10초)에는 한 칸 앞에서 끝난다. 1시간은 5분 버킷
+        12개가 다 집계돼야 넣는다. 데이터가 없는 칸도 값이 null 인 점으로 채운다. GPU 는 gpus 표에서
+        읽으므로 지금 보고에서 빠진 GPU 도 나온다. 모르는 노드면 None. 노드 정보만 락 안에서 읽고
+        DB 는 락 밖에서 읽는다.
+        """
+        with self.lock:
+            node = self.state.nodes.get(key)
+            if node is None or self.repo is None:
+                return None
+            display_name = node.display_name or key
+            now = self.clock() if now is None else now
+        size, count = RANGES[range_]
+        end = closed_until(now, size, self.th.clock_skew_max_s)
+        done = self._agg_next  # 이 앞 버킷은 집계가 끝났다. 시작 때 집계 위치를 못 찾았으면 None
+        if done is not None:
+            end = min(end, bucket_start(done, size))
+        start = end - size * count
+        gpus = self.repo.node_gpus(key)
+        rows = self.repo.buckets([g.uuid for g in gpus], start, end)
+        series = []
+        for g in gpus:
+            points = rows[g.uuid] if size == BUCKET_S else rollup(rows[g.uuid], size)
+            series.append(
+                GpuSeries(
+                    uuid=g.uuid,
+                    index=g.index,
+                    name=g.name,
+                    mem_total_mb=g.mem_total_mb,
+                    points=[_history_point(p) for p in fill(points, start, size, count)],
+                )
+            )
+        return NodeHistoryOut(
+            key=key,
+            display_name=display_name,
+            range=range_,
+            step_s=size,
+            from_ts=start,
+            to_ts=end,
+            gpus=series,
+        )
 
     # ------------------------------------------------------------------ 뷰 조립
 

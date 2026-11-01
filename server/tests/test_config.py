@@ -83,6 +83,39 @@ def test_missing_settings_are_named(tmp_path: Path):
         load_db_url(_write(tmp_path, SETTINGS.replace("[postgres_db]", "[database]")))
 
 
+def test_retention_from_yaml_and_env(tmp_path: Path):
+    env = {"RUNBOARD_SETTINGS": str(_write(tmp_path))}
+    retention = load_server_config(None, env=env).server.retention
+    assert (retention.raw_days, retention.agg_days, retention.sessions_days) == (7, 90, 365)
+
+    yaml_file = tmp_path / "runboard.yaml"
+    yaml_file.write_text("server:\n  retention:\n    raw_days: 3\n", encoding="utf-8")
+    env["RUNBOARD_RETENTION_AGG_DAYS"] = "30.5"
+    retention = load_server_config(yaml_file, env=env).server.retention
+    assert (retention.raw_days, retention.agg_days, retention.sessions_days) == (3, 30.5, 365), (
+        "환경변수가 YAML 을 덮어쓴다"
+    )
+    env["RUNBOARD_RETENTION_SESSIONS_DAYS"] = "0"
+    with pytest.raises(ValueError, match="sessions_days"):
+        load_server_config(yaml_file, env=env)  # 0 이면 끝난 세션이 전부 지워진다
+    env["RUNBOARD_RETENTION_SESSIONS_DAYS"] = "inf"
+    with pytest.raises(ValueError, match="finite"):
+        load_server_config(yaml_file, env=env)  # 무한이면 기한을 계산하지 못해 tick 마다 실패한다
+
+
+@pytest.mark.parametrize("value", [".inf", "36501"])
+def test_retention_must_be_finite_and_bounded(tmp_path: Path, value: str):
+    """'계속 보존' 으로 .inf 를 적거나 아주 큰 값을 적으면 기한이 bucket_ts(BIGINT) 범위를 넘는다."""
+    yaml_file = tmp_path / "runboard.yaml"
+    yaml_file.write_text(f"server:\n  retention:\n    agg_days: {value}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="agg_days"):
+        load_server_config(yaml_file, env={"RUNBOARD_SETTINGS": str(_write(tmp_path))})
+    yaml_file.write_text("server:\n  retention:\n    agg_days: 36500\n", encoding="utf-8")
+    cfg = load_server_config(yaml_file, env={"RUNBOARD_SETTINGS": str(_write(tmp_path))})
+    assert cfg.server.retention.agg_days == 36500, "100년까지는 받는다"
+
+
 def test_example_yaml_loads(tmp_path: Path):
     example = Path(__file__).resolve().parents[2] / "deploy" / "runboard.example.yaml"
-    load_server_config(example, env={"RUNBOARD_SETTINGS": str(_write(tmp_path))})
+    cfg = load_server_config(example, env={"RUNBOARD_SETTINGS": str(_write(tmp_path))})
+    assert cfg.server.retention.raw_days == 7 and cfg.server.retention.agg_days == 90

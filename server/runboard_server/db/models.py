@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     Float,
     ForeignKey,
@@ -75,7 +76,11 @@ class GpuRow(Base):
 
 class GpuSampleRow(Base):
     __tablename__ = "gpu_samples"
-    __table_args__ = (Index("ix_gpu_samples_gpu_ts", "gpu_uuid", "ts"),)
+    __table_args__ = (
+        Index("ix_gpu_samples_gpu_ts", "gpu_uuid", "ts"),
+        # 5분 집계와 보존 정리는 GPU 구분 없이 시각 범위로 읽고 지운다
+        Index("ix_gpu_samples_ts", "ts"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     gpu_uuid: Mapped[str] = mapped_column(String(80))
@@ -86,6 +91,31 @@ class GpuSampleRow(Base):
     mem_used_mb: Mapped[int | None] = mapped_column(Integer)
     temp_c: Mapped[int | None] = mapped_column(Integer)
     power_w: Mapped[float | None] = mapped_column(Float)
+    # 저장 시점에 이 GPU 에 열린 세션이 있었는가. 열을 추가하기 전 샘플은 NULL
+    occupied: Mapped[bool | None] = mapped_column(Boolean)
+
+
+class GpuSample5mRow(Base):
+    """5분 집계. 엔진이 닫힌 버킷마다 원본 샘플을 GPU 별로 묶어 쓴다 (core/history.py).
+
+    값의 이름은 history.Point 와 같다. 1시간 이력은 이 행들을 samples 로 가중해 다시 묶는다.
+    """
+
+    __tablename__ = "gpu_samples_5m"
+    # 보존 정리와 집계를 이어 할 위치는 GPU 구분 없이 bucket_ts 로 찾는다
+    __table_args__ = (Index("ix_gpu_samples_5m_bucket", "bucket_ts"),)
+
+    gpu_uuid: Mapped[str] = mapped_column(String(80), primary_key=True)
+    # 버킷 시작 (epoch 초, 300 의 배수). 정수라서 실수와 비교하면 인덱스를 못 쓴다 (repo._bucket_bound)
+    bucket_ts: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    util_avg: Mapped[float | None] = mapped_column(Float)
+    util_max: Mapped[int | None] = mapped_column(Integer)
+    mem_avg_mb: Mapped[float | None] = mapped_column(Float)
+    mem_max_mb: Mapped[int | None] = mapped_column(Integer)
+    temp_max: Mapped[int | None] = mapped_column(Integer)
+    power_avg: Mapped[float | None] = mapped_column(Float)
+    occupied_ratio: Mapped[float | None] = mapped_column(Float)  # 열린 세션이 있던 샘플의 비율
+    samples: Mapped[int] = mapped_column(Integer)  # 묶은 원본 샘플 수
 
 
 class WorkloadRow(Base):
