@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- RunBoard: accent(#2563eb) 바탕에 사용률 막대 세 줄. 막대는 16px 에서 픽셀에 맞도록 정수 좌표에 둔다 -->
+  <rect width="16" height="16" rx="3.5" fill="#2563eb"/>
+  <g fill="#fff">
+    <rect x="3" y="3" width="10" height="2" rx="1" opacity=".38"/>
+    <rect x="3" y="7" width="10" height="2" rx="1" opacity=".38"/>
+    <rect x="3" y="11" width="10" height="2" rx="1" opacity=".38"/>
+    <rect x="3" y="3" width="8" height="2" rx="1"/>
+    <rect x="3" y="7" width="4" height="2" rx="1"/>
+    <rect x="3" y="11" width="6" height="2" rx="1"/>
+  </g>
+</svg>
