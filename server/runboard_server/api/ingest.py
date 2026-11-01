@@ -1,4 +1,4 @@
-"""POST /api/v1/report — 에이전트 보고 수신 (PLAN 6.1)."""
+"""POST /api/v1/report — 에이전트 보고 수신."""
 
 from __future__ import annotations
 

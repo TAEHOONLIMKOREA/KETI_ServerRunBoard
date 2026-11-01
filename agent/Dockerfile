@@ -1,6 +1,6 @@
 # 빌드 컨텍스트는 레포 루트:  docker build -f agent/Dockerfile -t runboard-agent .
 #
-# 실행 (호스트 PID 네임스페이스와 Docker 소켓 조회가 필요하다, PLAN 4.2):
+# 실행 (호스트 PID 네임스페이스와 Docker 소켓 조회가 필요하다):
 #   docker run -d --name runboard-agent --restart unless-stopped \
 #     --gpus all --pid=host \
 #     -v /var/run/docker.sock:/var/run/docker.sock:ro \

@@ -1,6 +1,7 @@
-"""SQLAlchemy 모델 (PLAN 5.1). MVP 는 시작 시 create_all, Alembic 은 v0.2.
+"""SQLAlchemy 모델. 서버가 시작할 때 create_all 로 없는 표를 만들고 Repository._migrate 가 빠진 열과
+인덱스를 더한다. Alembic 은 쓰지 않는다.
 
-PLAN 과 다른 점: 작업·세션 ID 는 정수 autoincrement 대신 uuid4 hex 문자열이다.
+작업·세션 ID 는 정수 autoincrement 가 아니라 uuid4 hex 문자열이다.
 메모리에서 먼저 만들고 DB 왕복 없이 연결하기 위해서다.
 """
 

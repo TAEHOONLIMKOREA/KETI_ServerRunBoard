@@ -1,9 +1,9 @@
 """RunBoard 에이전트 ↔ 서버 보고 스키마.
 
-docs/PLAN.md 6.1 의 보고 JSON 을 pydantic 모델로 정의한다.
+에이전트가 POST /api/v1/report 로 보내는 보고 JSON 을 pydantic 모델로 정의한다 (docs/RUNBOARD.md '6. API').
 에이전트는 보내기 전에, 서버는 받은 뒤에 같은 모델로 검증한다.
 
-원칙 (PLAN 4.2):
+원칙:
 - 에이전트는 사실만 보낸다. 소유자 판정은 서버가 한다.
 - 수집할 수 없는 값은 0 이 아니라 None 이다. 왜 못 얻었는지는 errors 에 남긴다.
 """

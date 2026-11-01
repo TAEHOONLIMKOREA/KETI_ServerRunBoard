@@ -1,8 +1,9 @@
-"""작업(workload) 묶음 키와 이름 (PLAN 4.2).
+"""작업(workload) 묶음 키와 이름.
 
 - 컨테이너가 있으면 컨테이너 ID 로 묶는다. DDP 8프로세스가 한 컨테이너면 작업 1개.
 - 없으면 (노드, 부팅 ID, 프로세스 그룹 ID). torchrun·multiprocessing 자식은 pgid 를 공유한다.
-- 작업명: runboard.job 라벨 → 컨테이너명 → 명령어의 스크립트명 → 실행 파일명.
+- 작업명: runboard.job 라벨 → 공용 서비스 이름 → 컨테이너명 → 명령어의 스크립트명(.py·.sh) → -m 모듈
+  → 실행 파일명 → pid <PID>.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""저장소 계층. 엔진은 이 클래스만 알고 SQLAlchemy 를 모른다 (PLAN 4.2 'repository 패턴').
+"""저장소 계층 (repository 패턴). 엔진은 이 클래스만 알고 SQLAlchemy 를 모른다.
 
 PostgreSQL 전용이다. 접속 정보는 settings.ini 에 있고, 테스트는 RUNBOARD_TEST_DB_URL 의 서버에 임시 DB 를 만든다.
 """
