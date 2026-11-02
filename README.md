@@ -41,7 +41,7 @@ RUNBOARD_TEST_DB_URL='postgresql+psycopg://<user>:<password>@<host>:<port>/postg
 
 웹을 고치면서 볼 때는 `cd web && npm run dev` (5173 포트, `/api` 는 8000 으로 프록시).
 
-대시보드 그림(`docs/img/dashboard.png`)은 아래처럼 로컬 서버를 띄우고 Chrome headless 로 찍는다. `--virtual-time-budget` 이 없으면 `불러오는 중…` 이 찍히고, Chrome 120 의 새 headless 모드는 그림 높이가 창 높이보다 77 px 작다 (1320×851).
+대시보드 그림(`docs/img/dashboard.png`)과 같은 크기의 그림은 아래 '로컬에서 돌려 보기' 처럼 서버와 가짜 에이전트를 띄우고 Chrome headless 로 찍는다. 그림의 작업 경과 시간과 노드 상세의 이력은 레포 밖 보조 스크립트로 맞춘 것이라 이 방법으로는 똑같이 나오지 않는다 ([RUNBOARD.md 10장 '스크린샷'](docs/RUNBOARD.md#스크린샷)). `--virtual-time-budget` 이 없으면 `불러오는 중…` 이 찍히고, Chrome 120 의 새 headless 모드는 그림 높이가 창 높이보다 77 px 작다 (1320×851).
 
 ```bash
 google-chrome --headless=new --hide-scrollbars --force-device-scale-factor=1 --blink-settings=preferredColorScheme=1 --window-size=1320,928 --virtual-time-budget=5000 --screenshot=docs/img/dashboard.png http://localhost:8000/
@@ -76,7 +76,7 @@ curl -X POST $B/account-mappings -H "$J" -d '{"uid":1001,"username":"taehoon"}'
 curl -X POST $B/services -H "$J" -d '{"name":"ollama","match_exec_account":"ollama","owner":"taehoon"}'
 ```
 
-NVIDIA GPU 가 있는 PC 에서는 `.venv/bin/runboard-agent run --once --print` 로 실제 수집 결과를 본다 (Windows 에서는 GPU 지표만, 프로세스 그룹·컨테이너 보강은 Linux 전용).
+NVIDIA GPU 가 있는 PC 에서는 `.venv/bin/runboard-agent run --once --print` 로 실제 수집 결과를 본다 (Windows 에서는 uid·프로세스 그룹·컨테이너가 비어 있다. 이 셋은 Linux 에서만 모은다).
 
 ## 운영 배포
 
@@ -113,7 +113,7 @@ journalctl -u runboard-agent -u runboard-docker-proxy -f
 - 중계를 걷어내려면 `--remove-docker-proxy`, 중계 없이 에이전트만 설치하려면 `--no-docker-proxy` (또는 `install-agent.sh`).
 - 보고 주기는 GPU 동작 중 1초, 유휴 30초다. `agent.toml` 의 `active_interval`, `idle_interval`, `idle_grace` 로 바꾼다.
 
-설치 순서, 중계의 동작과 한계, 컨테이너로 돌리는 법은 [RUNBOARD.md 2장 'Docker 소켓 중계'와 9장 '배포와 운영'](docs/RUNBOARD.md#9-배포와-운영) 에 있다.
+설치 순서, 중계의 동작과 한계, 컨테이너로 돌리는 법은 RUNBOARD.md 의 [2장 'Docker 소켓 중계'](docs/RUNBOARD.md#docker-소켓-중계)와 [9장 '배포와 운영'](docs/RUNBOARD.md#9-배포와-운영) 에 있다.
 
 ### 노드 관리
 
@@ -145,7 +145,7 @@ curl -s -X DELETE $RB/api/v1/admin/nodes/<식별자>          # 비활성화된 
 
 ```bash
 curl -s -X POST -H 'Content-Type: application/json' \
-  -d "{\"text\": \"11/7(금) 18시까지 Server_3 점검\", \"level\": \"warning\", \"until\": $(date -d '2026-11-07 18:00' +%s)}" \
+  -d "{\"text\": \"11/7(토) 18시까지 Server_3 점검\", \"level\": \"warning\", \"until\": $(date -d '2026-11-07 18:00' +%s)}" \
   http://<서버 주소>:55400/api/v1/admin/notices
 ```
 
@@ -159,18 +159,18 @@ curl -s -X POST -H 'Content-Type: application/json' \
 | `agg_days` | 90 | 5분 집계 `gpu_samples_5m`. 노드 상세의 이력 차트(24시간·7일)가 읽는다 |
 | `sessions_days` | 365 | 끝난 세션 `gpu_sessions`, 그리고 남은 세션이 없는 끝난 작업 `workloads` |
 
-환경변수 `RUNBOARD_RETENTION_RAW_DAYS`, `RUNBOARD_RETENTION_AGG_DAYS`, `RUNBOARD_RETENTION_SESSIONS_DAYS` 가 YAML 값을 덮어쓴다. 노드·GPU·등록 정보·공지 행은 지우지 않는다. 지운 자리는 PostgreSQL 이 다시 쓰지만 파일 크기는 바로 줄지 않는다. 줄이려면 사용이 적은 때 `VACUUM FULL gpu_samples;` 처럼 한다 (그 표를 잠그므로 그동안 보고 처리가 멈출 수 있다).
+환경변수 `RUNBOARD_RETENTION_RAW_DAYS`, `RUNBOARD_RETENTION_AGG_DAYS`, `RUNBOARD_RETENTION_SESSIONS_DAYS` 가 YAML 값을 덮어쓴다. 노드·GPU·등록 정보·공지 행은 지우지 않는다. 지운 자리는 PostgreSQL 이 다시 쓰지만 파일 크기는 바로 줄지 않는다. 줄이려면 사용이 적은 때 `VACUUM FULL gpu_samples;` 처럼 한다 (그 표를 잠그므로 그동안 샘플을 쓰려던 보고가 서버의 상태 락을 잡은 채 기다려, 보고 처리와 대시보드·조회 API 가 함께 멈출 수 있다).
 
 ### 소유자가 "미확인" 으로 나올 때
 
 서버는 추정하지 않는다. 다음 중 하나로 알려 준다.
 
 1. 컨테이너 라벨: `docker run --label runboard.owner=<user> --label runboard.project=<proj> ...` (중계가 있는 노드에서는 만든 계정이 자동으로 붙는다)
-2. 컨테이너명 규칙: `<user>_<용도>` (예: `taehoon_torch`). `<user>` 가 관리 화면에 등록된 사용자·별칭이어야 한다
+2. 컨테이너명 규칙: `<user>_<용도>` (예: `taehoon_torch`). `<user>` 는 영문으로 시작하는 영문·숫자이고, 관리 화면에 등록된 사용자·별칭이어야 한다
 3. 호스트 계정: 계정명이 등록 사용자·별칭과 같으면 자동 인식. 다르면 관리 화면의 계정 매핑에 (노드, uid) → 사용자
 4. 공용 서비스(Ollama, vLLM 등): 관리 화면의 공용 서비스에 매칭 규칙과 담당자
 
-관리 화면에서 고치면 이미 돌고 있는 작업도 다음 보고 때 유형·소유자를 다시 판정한다. 판정 순서는 [RUNBOARD.md 3장 '작업 유형과 소유자 판정'](docs/RUNBOARD.md#3-서버-동작) 에 있다.
+관리 화면에서 고치면 이미 돌고 있는 작업도 다음 보고 때 유형·소유자를 다시 판정한다. 판정 순서는 [RUNBOARD.md 3장 '작업 유형과 소유자 판정'](docs/RUNBOARD.md#작업-유형과-소유자-판정) 에 있다.
 
 ## API
 

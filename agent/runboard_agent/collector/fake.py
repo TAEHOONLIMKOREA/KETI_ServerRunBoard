@@ -39,7 +39,7 @@ from runboard_common.schemas import (
 _NAMESPACE = uuid.UUID("3d2a9f1e-5c6b-4e7d-8a9b-0c1d2e3f4a5b")
 _GPU_NAME = "NVIDIA A100 80GB PCIe (fake)"
 _MEM_TOTAL = 81920
-_EPOCH = 1_760_572_800  # 2026-10-16 00:00 UTC. 프로세스 시작 시각의 기준
+_EPOCH = 1_760_572_800  # 2025-10-16 00:00 UTC. 프로세스 시작 시각의 기준
 CHURN_PERIOD_S = 90
 CHURN_ALIVE_S = 40
 

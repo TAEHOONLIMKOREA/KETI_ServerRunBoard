@@ -5,7 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# install-agent.sh 가 만드는 전용 계정. Docker 가 있으면 docker 그룹에 넣어 컨테이너 조회만 허용한다.
+# install-agent.sh 가 만드는 전용 계정. Docker 가 있으면 docker 그룹에 넣어 컨테이너 정보를 조회하게 한다.
+# 에이전트는 조회만 하지만 docker 그룹 권한은 Docker API 전체(사실상 root)다.
 User=runboard
 Group=runboard
 Environment=PYTHONUNBUFFERED=1

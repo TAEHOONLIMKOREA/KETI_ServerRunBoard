@@ -1,7 +1,8 @@
 """서버 테스트 공용 픽스처. fake 수집기 시나리오(agent/collector/fake.py)에 맞춘 설정과 등록 정보.
 
 DB 테스트는 PostgreSQL 에서 돈다. RUNBOARD_TEST_DB_URL(접속 URL, DB 이름은 아무것이나)의 서버에
-runboard_test_<pid> DB 를 만들고 끝나면 지운다. CREATEDB 권한이 있어야 한다. 없으면 DB 테스트는 건너뛴다.
+runboard_test_<pid> DB 를 만들고 끝나면 지운다. CREATEDB 권한이 있어야 한다 (없으면 오류로 끝난다).
+RUNBOARD_TEST_DB_URL 이 없으면 DB 테스트는 건너뛴다.
 """
 
 import hashlib
