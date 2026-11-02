@@ -5,10 +5,11 @@
 #
 # 하는 일: 전용 계정 runboard 생성 → /opt/runboard/venv 에 에이전트 설치 → /etc/runboard/agent.toml 작성
 #          → systemd 유닛 등록·시작. 몇 초 뒤 대시보드에 노드가 나타난다.
-#          이미 설치한 노드는 --server·--token 없이 다시 돌리면 설정은 두고 패키지만 갱신한다.
-#          Docker 소켓 중계까지 설치하려면 deploy/start-agent.sh 를 쓴다 (이 스크립트를 부른다).
+#          이미 설치한 노드는 --server·--token 없이 다시 돌리면 설정은 두고 패키지를 갱신한 뒤 에이전트를 다시 시작한다.
+#          Docker 소켓 중계의 설치·갱신은 deploy/start-agent.sh 가 한다 (이 스크립트를 부른다). 여기서는 중계를
+#          다시 시작하지 않는다.
 # 옵션:   --source <레포 경로>  (기본: 이 스크립트가 있는 레포)   --prefix /opt/runboard   --python python3
-#         --no-start  설치만 하고 시작하지 않는다
+#         --no-start  설치·갱신만 하고 시작(다시 시작)하지 않는다
 set -euo pipefail
 
 SERVER=""
@@ -95,16 +96,23 @@ echo "[4/4] systemd"
 install -m 644 "$SOURCE/agent/systemd/runboard-agent.service" /etc/systemd/system/runboard-agent.service
 sed -i "s#/opt/runboard/venv#$PREFIX/venv#g" /etc/systemd/system/runboard-agent.service
 systemctl daemon-reload
+systemctl enable runboard-agent
 if (( ! START )); then
-  systemctl enable runboard-agent
   echo "      설치만 했다 (--no-start)"
   exit 0
 fi
-systemctl enable --now runboard-agent
+# enable --now 는 이미 돌고 있는 에이전트를 다시 띄우지 않아 갱신한 코드가 안 쓰인다. restart 는 멈춰 있어도 시작한다
+systemctl restart runboard-agent
 sleep 2
 systemctl --no-pager --lines=5 status runboard-agent || true
 echo
 echo "완료. 로그: journalctl -u runboard-agent -f"
 if [[ -n "$SERVER" ]]; then
-  echo "확인: curl -s $SERVER/api/v1/nodes | grep -o '\"name\":\"$NODE\"'"
+  echo "확인: curl -s $SERVER/api/v1/nodes | grep -o '\"hostname\":\"$NODE\"'"
+fi
+# 중계도 이 venv 의 코드로 돈다. 유닛을 새로 깔고 다시 시작하는 일은 start-agent.sh 가 한다 (옛 유닛은 멈출 때 오래 걸릴 수 있다)
+if systemctl is-active --quiet runboard-docker-proxy.service; then
+  again="sudo bash $SOURCE/deploy/start-agent.sh"
+  [[ "$PREFIX" == "/opt/runboard" ]] || again+=" --prefix $PREFIX"
+  echo "참고: Docker 소켓 중계는 다시 시작하지 않아 갱신 전 코드로 돈다. 중계도 갱신하려면: $again"
 fi
