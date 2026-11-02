@@ -4,7 +4,9 @@
 - active_interval: GPU 가 동작 중(프로세스가 있거나 사용률 > 0)일 때의 보고 주기. 수집 주기이기도 하다
 - idle_interval:   GPU 가 모두 놀고 있을 때의 보고 주기
 - idle_grace:      동작이 멈춘 뒤에도 이 시간 동안은 active_interval 로 보고한다
-"interval" 은 예전 이름으로 active_interval 과 같다. 둘 다 있으면 active_interval 을 쓴다.
+"interval"(환경변수 RUNBOARD_INTERVAL) 은 예전 이름으로 active_interval 과 같다. 파일·환경변수·CLI 마다 먼저
+새 이름으로 바꾼 뒤 합치므로 우선순위도 같다 (환경변수 RUNBOARD_INTERVAL 이 파일의 active_interval 을 이긴다).
+한 곳에 둘 다 있으면 active_interval 을 쓴다.
 node_id 는 재부팅·호스트명 변경 뒤에도 같은 노드로 인식되게 하는 고정 식별자다. 설치 스크립트가 UUID 를 써 준다.
 """
 
@@ -80,10 +82,7 @@ class AgentConfig:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> AgentConfig:
-        data = dict(data)
-        legacy = data.pop("interval", None)
-        if legacy is not None and data.get("active_interval") is None:
-            data["active_interval"] = legacy
+        data = _resolve_legacy(data)
         fake_raw = dict(data.get("fake") or {})
         fake = FakeOptions(
             gpu_count=int(fake_raw.get("gpu_count", FakeOptions.gpu_count)),
@@ -100,6 +99,15 @@ class AgentConfig:
         cfg = cls(**kwargs)
         cfg.validate()
         return cfg
+
+
+def _resolve_legacy(layer: Mapping[str, Any]) -> dict[str, Any]:
+    """예전 이름 interval 을 active_interval 로 바꾼다. 한 층에 둘 다 있으면 active_interval 을 쓴다."""
+    out = dict(layer)
+    legacy = out.pop("interval", None)
+    if legacy is not None and out.get("active_interval") is None:
+        out["active_interval"] = legacy
+    return out
 
 
 def _as_bool(value: Any) -> bool:
@@ -138,13 +146,15 @@ def load_config(
             path = DEFAULT_CONFIG_PATH
     elif not path.exists():
         raise FileNotFoundError(f"설정 파일이 없다: {path}")
+    # 예전 이름 interval 은 층마다 먼저 바꾼다. 합친 뒤에 바꾸면 파일의 active_interval 이 환경변수 interval 을 이긴다
     if path is not None:
-        merged = _deep_merge(merged, tomllib.loads(path.read_text(encoding="utf-8")))
+        toml_values = tomllib.loads(path.read_text(encoding="utf-8"))
+        merged = _deep_merge(merged, _resolve_legacy(toml_values))
 
     env_values = {ENV_KEYS[k]: v for k, v in env.items() if k in ENV_KEYS}
-    merged = _deep_merge(merged, env_values)
+    merged = _deep_merge(merged, _resolve_legacy(env_values))
 
     if overrides:
-        merged = _deep_merge(merged, overrides)
+        merged = _deep_merge(merged, _resolve_legacy(overrides))
 
     return AgentConfig.from_dict(merged)

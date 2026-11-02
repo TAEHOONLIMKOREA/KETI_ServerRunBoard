@@ -44,6 +44,23 @@ def test_legacy_interval_means_active_interval(tmp_path: Path):
     assert both.active_interval == 2.0, "둘 다 있으면 새 이름"
 
 
+def test_legacy_interval_keeps_its_layer_priority(tmp_path: Path):
+    toml = tmp_path / "agent.toml"
+    toml.write_text("active_interval = 2\n", encoding="utf-8")
+    legacy = {"RUNBOARD_INTERVAL": "9"}
+    both = {"RUNBOARD_ACTIVE_INTERVAL": "3", "RUNBOARD_INTERVAL": "9"}
+
+    def active(env, overrides=None):
+        return load_config(toml, env=env, overrides=overrides).active_interval
+
+    assert active(legacy) == 9.0, "예전 이름이어도 환경변수가 파일을 이긴다"
+    assert active(both) == 3.0, "같은 곳에 둘 다 있으면 새 이름"
+    assert active(legacy, {"active_interval": 4}) == 4.0, "CLI 가 환경변수를 이긴다"
+    assert active(both, {"interval": 5}) == 5.0, "CLI 의 예전 이름도 CLI 우선순위"
+    toml.write_text("interval = 7\nactive_interval = 2\n", encoding="utf-8")
+    assert active({}) == 2.0, "파일에 둘 다 있으면 새 이름"
+
+
 def test_missing_explicit_file_is_error(tmp_path: Path):
     with pytest.raises(FileNotFoundError):
         load_config(tmp_path / "nope.toml", env={})
