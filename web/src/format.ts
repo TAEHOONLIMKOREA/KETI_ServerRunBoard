@@ -124,6 +124,7 @@ export const endedReasonLabel: Record<string, string> = {
   node_rebooted: "노드 재부팅",
   node_offline_timeout: "끊김 24시간 초과",
   node_removed: "노드 삭제",
+  node_replaced: "식별자 변경",
 };
 
 export const WARN_BADGES = new Set(["유휴 의심", "온도", "수집 오류", "미확인", "미확인 소유자", "지연"]);
