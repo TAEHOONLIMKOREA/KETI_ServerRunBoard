@@ -107,7 +107,7 @@ sudo bash deploy/start-agent.sh --server http://<서버 주소>:55400 --token <�
 journalctl -u runboard-agent -u runboard-docker-proxy -f
 ```
 
-- `start-agent.sh` 는 몇 번을 다시 돌려도 된다. 설치한 노드에서 인자 없이 돌리면 갱신하고 다시 시작한다.
+- `start-agent.sh` 는 몇 번을 다시 돌려도 된다. 설치한 노드에서 인자 없이 돌리면 갱신하고 다시 시작한다. 중계가 있는 노드는 이것으로 갱신한다 (`install-agent.sh` 는 에이전트만 다시 시작한다).
 - 에이전트는 전용 계정 `runboard` 로 `/opt/runboard/venv` 에 설치되고 systemd 서비스로 돈다. `/etc/runboard/agent.toml` 에 고정 `node_id`(UUID)를 적어 두므로 재부팅하거나 호스트명이 바뀌어도 같은 노드로 이어진다.
 - Docker 가 있으면 **Docker 소켓 중계**도 설치한다. Docker 는 누가 컨테이너를 만들었는지 남기지 않으므로, 중계가 원래 소켓 자리(`/run/docker.sock`)를 맡고 새 컨테이너에 만든 계정을 `runboard.owner`·`runboard.launcher` 라벨로 붙인다. 사용자는 Docker 를 그대로 쓴다. 진짜 소켓을 옮길 때 Docker 데몬을 한 번 재시작하는데, 먼저 live-restore 를 켜므로 돌던 컨테이너는 멈추지 않는다 (켤 수 없는데 돌던 컨테이너가 있으면 멈추고, 학습이 없는 시간에 `--yes` 로 다시 한다).
 - 중계를 걷어내려면 `--remove-docker-proxy`, 중계 없이 에이전트만 설치하려면 `--no-docker-proxy` (또는 `install-agent.sh`).
@@ -137,7 +137,7 @@ curl -s -X PATCH -H 'Content-Type: application/json' -d '{"display_name": "A100-
 curl -s -X DELETE $RB/api/v1/admin/nodes/<식별자>          # 비활성화된 노드만. 성공하면 204
 ```
 
-지울 수 있는 것은 비활성화된 노드뿐이다. 먼저 그 노드에서 에이전트를 멈춘다 (`sudo systemctl disable --now runboard-agent`). 지우면 열린 작업은 '노드 삭제' 로 끝나고 지난 작업·세션·샘플 이력은 남는다. 같은 에이전트가 다시 보고하면 새 `Server_n` 으로 다시 등록된다. 노드의 식별자를 바꿀 때는 옛 노드를 먼저 지운다 ([RUNBOARD.md 3장 '식별자가 바뀔 때'](docs/RUNBOARD.md#3-서버-동작)).
+지울 수 있는 것은 비활성화된 노드뿐이다. 먼저 그 노드에서 에이전트를 멈춘다 (`sudo systemctl disable --now runboard-agent`). 지우면 열린 작업은 '노드 삭제' 로 끝나고 지난 작업·세션·샘플 이력은 남는다. 같은 에이전트가 다시 보고하면 `Server_n` 화면 이름으로 다시 등록된다 (바꿔 둔 화면 이름은 돌아오지 않는다). 노드의 식별자가 바뀌면 새 노드로 등록되고, 돌던 작업은 옛 노드가 비활성화된 뒤 새 노드가 이어받는다. 옛 노드는 그 뒤에 지운다. 이때 에이전트는 새 식별자로 계속 돌게 둔다 ([RUNBOARD.md 3장 '식별자가 바뀔 때'](docs/RUNBOARD.md#식별자가-바뀔-때)).
 
 ### 공지
 
