@@ -14,7 +14,7 @@
 #       4) 중계·에이전트 시작과 확인
 # 옵션  --yes              live-restore 를 켜지 못해 돌던 컨테이너가 멈추더라도 진행
 #       --no-docker-proxy  중계 없이 에이전트만   (--node --source --prefix --python 은 install-agent.sh 로 넘긴다)
-set -euo pipefail
+set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE="$(cd "$HERE/.." && pwd)"
@@ -64,7 +64,8 @@ if [[ $EUID -ne 0 ]]; then
   (( DRY )) || die "root 로 실행하세요 (sudo)."
   echo "참고: root 가 아니라 Docker 상태 일부를 읽지 못한다 (--dry-run)"
 fi
-trap 'echo "실패. 로그: journalctl -u docker -u $PROXY -u runboard-agent -n 50 --no-pager / 되돌리기: sudo bash $HERE/start-agent.sh --remove-docker-proxy" >&2' ERR
+# set -E 라 함수 안의 실패에도 알린다. $(...) 안에서도 불리므로 바깥 셸에서만 찍어 한 번만 나온다
+trap '(( BASH_SUBSHELL )) || echo "실패. 로그: journalctl -u docker -u $PROXY -u runboard-agent -n 50 --no-pager / 되돌리기: sudo bash $HERE/start-agent.sh --remove-docker-proxy" >&2' ERR
 
 # ---------------------------------------------------------------------- Docker 상태
 
@@ -136,7 +137,8 @@ PY
   fi
 }
 
-# 데몬을 재시작해도 되는지 본다. 여기서 멈추면 아직 아무것도 바꾸지 않았다
+# 데몬을 재시작해도 되는지 본다. 여기서 멈추면 Docker 소켓과 중계는 아직 그대로다. 다만 앞 단계는 이미 했다:
+# 설치라면 에이전트 설치·갱신(다시 시작은 아직), 그리고 live-restore 가 꺼져 있었다면 daemon.json 수정과 reload
 preflight_restart() {
   local live running
   live="$(live_restore)"
