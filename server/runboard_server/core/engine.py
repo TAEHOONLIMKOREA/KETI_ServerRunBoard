@@ -7,6 +7,8 @@ tick  : 연결 판정 → offline 노드의 세션을 unknown 으로 → 24시�
 공지  : 메모리 사본만 읽는다. overview 는 1초마다 불리므로 DB 를 읽지 않고 그때의 시각으로 기한을 거른다
 
 락 하나로 직렬화한다. 서버 프로세스는 하나다. 집계·보존 정리와 이력 조회는 DB 만 보므로 락 밖에서 한다.
+메모리를 먼저 바꾸고 DB 에 쓴다. 쓰다 실패하면 꺼낸 작업·세션을 tracker 에 돌려주어 다음에 DB 에 쓸 때(tick,
+샘플 저장, 전이가 있는 보고) 함께 다시 쓴다.
 """
 
 from __future__ import annotations
@@ -15,7 +17,8 @@ import logging
 import threading
 import time
 from collections import defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 
 from runboard_common.schemas import NodeReport
 from runboard_server.config import ServerConfig
@@ -202,6 +205,8 @@ class Engine:
         """끊긴 노드만 지운다. 열린 세션은 node_removed 로 끝내고, 작업·세션·샘플 이력은 DB 에 남긴다.
 
         보고 중인 노드를 지우면 다음 보고에서 새 이름으로 바로 다시 등록되므로 막는다.
+        DB 에 쓰다 실패하면 예외를 올리고 노드는 남는다. 세션은 이미 끝났으므로 그 종료는 다음 저장 때 쓴다.
+        다시 지우면 된다.
         """
         with self.lock:
             node = self.state.nodes.get(key)
@@ -218,8 +223,9 @@ class Engine:
             self.tracker.end_node(key, "node_removed")
             workloads, sessions = self.tracker.take_dirty()
             if self.repo is not None:
-                self.repo.save(workloads, sessions)
-                self.repo.delete_node(key)
+                with self._requeue_on_error(workloads, sessions):
+                    self.repo.save(workloads, sessions)
+                    self.repo.delete_node(key)
             del self.state.nodes[key]
             log.info("노드 삭제: %s (%s)", node.display_name, key)
             return True
@@ -245,7 +251,8 @@ class Engine:
                         log.info("노드 %s: 24시간 넘게 끊겨 세션 %d개 종료", name, closed)
             workloads, sessions = self.tracker.take_dirty()
             if self.repo is not None:
-                self.repo.save(workloads, sessions)
+                with self._requeue_on_error(workloads, sessions):
+                    self.repo.save(workloads, sessions)
         self._maintain(now)
 
     def _persist(self, node: NodeState, ts: float, received: float) -> None:
@@ -253,6 +260,10 @@ class Engine:
 
         보고가 1초마다 오므로 전부 매번 쓰면 DB 쓰기가 수십 배가 된다. 전이(생성·종료·미확인·복귀)만
         바로 쓰고, GB·시간 같은 누적값은 tick(10초)과 샘플 저장 때 모아서 쓴다.
+
+        DB 가 멈추면 전이도, 샘플 저장도, 호스트명 변경(info_dirty)도 없는 보고는 DB 에 닿지 않아 204 다.
+        샘플 저장 때가 됐거나 호스트명이 바뀐 노드의 보고는 그 저장에 성공할 때까지 보고마다 DB 에 쓰려다
+        실패해 500 이 된다.
         """
         due = (
             node.last_sample_persist_ts == 0.0
@@ -261,14 +272,31 @@ class Engine:
         workloads, sessions = self.tracker.take_dirty(transitions_only=not due)
         if self.repo is None:
             return
-        if due or node.info_dirty:
-            self.repo.upsert_node(node)
-            node.info_dirty = False
-        if due:
-            busy = {s.gpu_uuid for s in self.tracker.open_sessions(node.key)}
-            self.repo.insert_samples(node, ts, received, busy)
-            node.last_sample_persist_ts = ts
-        self.repo.save(workloads, sessions)
+        with self._requeue_on_error(workloads, sessions):
+            if due or node.info_dirty:
+                self.repo.upsert_node(node)
+                node.info_dirty = False
+            if due:
+                busy = {uuid for uuid in node.gpus if self._gpu_sessions(node.key, uuid)}
+                self.repo.insert_samples(node, ts, received, busy)
+                node.last_sample_persist_ts = ts
+            self.repo.save(workloads, sessions)
+
+    @contextmanager
+    def _requeue_on_error(
+        self, workloads: list[Workload], sessions: list[Session]
+    ) -> Iterator[None]:
+        """take_dirty 로 꺼낸 것을 쓰는 구간. 무엇이 실패하든 꺼낸 것을 tracker 에 돌려주고 예외는 그대로 올린다.
+
+        끝난 세션·작업은 꺼낼 때 메모리에서 빠지므로, 돌려주지 않으면 그 종료가 DB 에 쓰이지 않는다.
+        돌려준 것은 다음에 DB 에 쓸 때(tick, 샘플 저장, 전이가 있는 보고) 함께 쓴다. 보고는 500, tick 은
+        'tick 실패' 로 끝난다.
+        """
+        try:
+            yield
+        except BaseException:
+            self.tracker.requeue(workloads, sessions)
+            raise
 
     # ------------------------------------------------------------------ 이력 집계·보존 정리
 
@@ -523,9 +551,23 @@ class Engine:
             gpus=gpus,
         )
 
+    def _gpu_sessions(self, node: str, gpu_uuid: str) -> list[Session]:
+        """화면과 샘플의 occupied 가 보는 GPU 의 열린 세션: 이 노드의 것과, 다른 노드가 보고 중인(active) 것.
+
+        프로세스 하나에 열린 세션은 노드가 달라도 하나다 (SessionTracker.apply_report). 식별자가 바뀐 직후 옛
+        노드가 아직 보고 중이거나 한 머신에서 에이전트가 둘 돌면 이 노드에는 그 프로세스의 세션이 없고, 새 노드가
+        이어받은 뒤의 옛 노드도 같다. 그래도 같은 GPU 이므로 쓰이는 GPU 로 보인다. 끊긴 다른 노드의 미확인
+        세션은 이 노드가 보고하지 않은 프로세스라 넣지 않는다.
+        """
+        return [
+            s
+            for s in self.tracker.open_sessions_on_gpu(gpu_uuid)
+            if s.node == node or s.status == "active"
+        ]
+
     def _gpu_out(self, node: NodeState, gpu: GpuState, conn: str, now: float) -> GpuOut:
         r = gpu.report
-        sessions = self.tracker.open_sessions_for_gpu(node.key, r.uuid)
+        sessions = self._gpu_sessions(node.key, r.uuid)
         by_workload: dict[str, list[Session]] = defaultdict(list)
         for s in sorted(sessions, key=lambda s: s.pid):
             by_workload[s.workload_id].append(s)

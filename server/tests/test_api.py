@@ -3,7 +3,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from runboard_agent.collector.fake import CHURN_PERIOD_S
+from runboard_agent.collector.fake import CHURN_ALIVE_S, CHURN_PERIOD_S
+from runboard_server.api.auth import verify_node_token
 from runboard_server.core.engine import UNKNOWN_USER
 from runboard_server.main import create_app
 
@@ -149,6 +150,45 @@ def test_tick_marks_offline_and_return_resumes(client, app, fake_report):
     node = client.get("/api/v1/overview").json()["nodes"][0]
     assert node["conn_status"] == "online"
     assert node["gpus"][0]["workloads"][0]["status"] == "active"
+
+
+def test_gpu_shows_sessions_another_node_holds(client, app, fake_report):
+    """식별자만 바뀐 같은 호스트(node_id 를 새로 줌). 프로세스 하나에 열린 세션은 하나라 옛 노드가 보고 중인
+    동안 새 노드에는 세션이 없다. 그래도 같은 GPU 이므로 옛 노드의 작업을 보이고 빈 GPU 로 세지 않는다.
+
+    새 노드가 이어받은 뒤의 옛 노드도 같다. 끊긴 옛 노드의 미확인 세션은 새 노드의 GPU 에 보이지 않는다.
+    """
+    clock = app.state.clock
+    engine = app.state.engine
+
+    def send(now: float, node_id: str | None = None) -> None:
+        clock.now = now
+        report = fake_report(now=now)
+        report.node.node_id = node_id
+        assert post(client, report).status_code == 204
+
+    def view(key: str) -> dict:
+        return client.get(f"/api/v1/nodes/{key}").json()
+
+    def shown(node: dict) -> list[tuple[str, list[str]]]:
+        return [(g["occupancy"], [w["workload_id"] for w in g["workloads"]]) for g in node["gpus"]]
+
+    send(BASE + 5)
+    send(BASE + 6, node_id="id-b")
+    old, new = view("fake01"), view("id-b")
+    assert engine.tracker.open_sessions("id-b") == [], "옛 노드가 아직 보고 중이다"
+    assert shown(new) == shown(old) and new["free_gpu_count"] == old["free_gpu_count"] == 1
+
+    clock.now = BASE + 40
+    engine.tick()  # fake01 비활성화: 세션 미확인
+    send(BASE + CHURN_ALIVE_S + 5, node_id="id-b")  # churn 은 끝났다. 나머지 7개를 이어받는다
+    old, new = view("fake01"), view("id-b")
+    assert old["conn_status"] == "offline" and len(engine.tracker.open_sessions("id-b")) == 7
+    for i in (0, 1, 2, 3, 5, 6):  # 옛 노드도 지금 도는 작업을 보인다
+        assert shown(old)[i] == shown(new)[i] and shown(new)[i][1]
+    assert shown(new)[4] == ("free", []), "옛 노드의 미확인 churn 세션은 새 노드에 보이지 않는다"
+    assert shown(old)[4][0] == "occupied" and "미확인" in old["gpus"][4]["badges"]
+    assert (old["free_gpu_count"], new["free_gpu_count"]) == (1, 2)
 
 
 def test_clock_skew_uses_received_time(client, app, fake_report):

@@ -2,10 +2,15 @@
 
 세션 = (프로세스, GPU) 한 쌍의 관측된 점유 구간. 키는 (노드, GPU UUID, 부팅 ID, PID, 프로세스 시작 시각).
 작업 = 세션의 묶음 (컨테이너 또는 프로세스 그룹).
+프로세스 하나(키에서 노드를 뺀 것)에 열린 세션은 노드가 달라도 하나다. DB 의 uq_session_open_key 와 같다.
+재부팅 없이 에이전트의 식별자가 바뀌면 같은 프로세스가 새 노드 키로 보이므로 새 노드가 옛 세션을 이어받는다.
+그래서 GPU 에 열린 세션은 노드가 아니라 GPU UUID 로 찾는다 (open_sessions_on_gpu).
 
 | 사건 | 전이 |
 |---|---|
 | 보고에 새 키 등장 | 세션 생성 active, 작업에 연결 |
+| 새 키의 프로세스에 다른 노드의 unknown 세션이 열려 있음 | 그 세션 ended, 사유 node_replaced. 그다음 세션 생성 |
+| 새 키의 프로세스에 다른 노드의 active 세션이 열려 있음 | 세션을 만들지 않는다. 그 노드가 offline 이 된 뒤의 보고가 이어받는다 |
 | 같은 키가 N회 연속 보고에서 빠짐 | ended, 사유 exited, end_ts = 마지막 측정 시각 |
 | 노드 offline | 그 노드의 active 세션 → unknown |
 | 노드 복귀, 같은 키 있음 | unknown → active, 공백을 unknown_seconds 에 누적 |
@@ -16,10 +21,12 @@
 
 메모리 점유량(GB·시간)과 평균 사용률은 보고마다 세션에 누적한다. unknown 구간은 누적하지 않는다.
 등록 정보(사용자·매핑·서비스)가 바뀌면 열린 작업의 유형·소유자를 다음 보고 때 다시 판정한다.
+DB 에 쓰지 못한 것은 requeue 로 돌려받아 다음 전체 take_dirty 나 전이가 있는 take_dirty 가 함께 다시 내준다.
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterable
@@ -30,17 +37,30 @@ from runboard_common.schemas import NodeReport, ProcessReport
 from runboard_server.core.owner import OwnerDecision
 from runboard_server.core.workloads import workload_key, workload_name
 
+log = logging.getLogger(__name__)
+
 SessionStatus = Literal["active", "unknown", "ended"]
 EndedReason = Literal[
-    "exited", "lost_while_offline", "node_rebooted", "node_offline_timeout", "node_removed"
+    "exited",
+    "lost_while_offline",
+    "node_rebooted",
+    "node_offline_timeout",
+    "node_removed",
+    "node_replaced",
 ]
 SessionKey = tuple[str, str, str, int, float | None]
+ProcKey = tuple[str, str, int, float | None]  # (GPU UUID, 부팅 ID, PID, 프로세스 시작 시각)
 
 MAX_ACCUMULATE_DT_S = 60.0
 
 
 def _new_id() -> str:
     return uuid.uuid4().hex
+
+
+def _proc_key(key: SessionKey) -> ProcKey:
+    """세션 키에서 노드를 뺀 것. 노드 식별자가 바뀌어도 같은 프로세스면 같다."""
+    return key[1:]
 
 
 @dataclass
@@ -127,12 +147,19 @@ class SessionTracker:
         self._wl_by_key: dict[str, Workload] = {}
         self._sessions_by_wl: dict[str, set[SessionKey]] = defaultdict(set)
         self._open_by_node: dict[str, set[SessionKey]] = defaultdict(set)
+        # GPU UUID → 프로세스 → 그 프로세스의 열린 세션. 노드가 달라도 프로세스 하나에 하나만 연다 (apply_report)
+        self._open_by_gpu: dict[str, dict[ProcKey, SessionKey]] = defaultdict(dict)
         self._node_boot: dict[str, str] = {}
         # 상태가 바뀐 것(생성·종료·미확인·복귀). take_dirty(transitions_only=True) 가 이것만 쓴다
         self._transitions: set[SessionKey] = set()
         self._wl_transitions: set[str] = set()
         # 등록 정보가 바뀌어 다음 보고 때 다시 판정할 열린 작업
         self._reclassify: set[str] = set()
+        # 다른 노드의 active 세션 때문에 세션을 만들지 않는다고 경고한 (노드, 세션을 가진 노드)
+        self._blocked_warned: set[tuple[str, str]] = set()
+        # DB 에 쓰지 못해 돌려받은 것 (requeue). 다음 전체 take_dirty 나 전이가 있는 take_dirty 가 다시 내준다
+        self._retry_workloads: dict[str, Workload] = {}
+        self._retry_sessions: dict[str, Session] = {}
 
     # ------------------------------------------------------------------ 조회
 
@@ -141,8 +168,9 @@ class SessionTracker:
             return [s for s in self.sessions.values() if s.is_open]
         return [self.sessions[k] for k in self._open_by_node.get(node, ())]
 
-    def open_sessions_for_gpu(self, node: str, gpu_uuid: str) -> list[Session]:
-        return [s for s in self.open_sessions(node) if s.gpu_uuid == gpu_uuid]
+    def open_sessions_on_gpu(self, gpu_uuid: str) -> list[Session]:
+        """그 GPU 의 열린 세션. 어느 노드의 세션이든 넣는다. GPU UUID 는 물리 GPU 마다 하나다."""
+        return [self.sessions[k] for k in self._open_by_gpu.get(gpu_uuid, {}).values()]
 
     def open_workloads(self, node: str | None = None) -> list[Workload]:
         return [
@@ -175,12 +203,22 @@ class SessionTracker:
 
         seen: set[SessionKey] = set()
         recheck: dict[str, list[ProcessReport]] = defaultdict(list)
+        replaced: dict[str, int] = defaultdict(int)  # 세션을 넘겨준 노드 → 이어받은 세션 수
         for gpu in report.gpus:
             for proc in gpu.processes:
                 key: SessionKey = (node, gpu.uuid, boot, proc.pid, proc.proc_start_ts)
                 seen.add(key)
                 session = self.sessions.get(key)
                 if session is None:
+                    holder = self._holder(key)
+                    if holder is not None:
+                        if holder.status == "active":
+                            # 그 노드가 아직 보고 중이다. 여기서 이어받으면 한 머신에 에이전트가 둘 돌 때
+                            # 두 노드가 보고마다 세션을 번갈아 새로 연다. 그 노드가 offline 이 되면 이어받는다
+                            self._warn_blocked(node, holder.node)
+                            continue
+                        self._end(holder, "node_replaced")
+                        replaced[holder.node] += 1
                     decision = decide(proc)
                     workload = self._get_or_create_workload(node, boot, proc, decision, ts)
                     session = Session(
@@ -201,12 +239,23 @@ class SessionTracker:
                     self.sessions[key] = session
                     self._sessions_by_wl[workload.id].add(key)
                     self._open_by_node[node].add(key)
+                    self._open_by_gpu[gpu.uuid][_proc_key(key)] = key
                     self._transitions.add(key)
                     self._touch(session, proc, ts, first=True)
                 else:
                     self._touch(session, proc, ts)
                     if session.workload_id in self._reclassify:
                         recheck[session.workload_id].append(proc)
+
+        for old, count in replaced.items():
+            log.info(
+                "노드 %s 의 세션 %d개를 노드 %s 가 이어받는다 (같은 프로세스. 식별자가 바뀐 것으로 본다)",
+                old,
+                count,
+                node,
+            )
+            self._blocked_warned.discard((node, old))  # 다시 막히면 또 알린다
+            self._refresh_workloads(old)
 
         for workload_id, procs in recheck.items():
             self._reclassify.discard(workload_id)
@@ -273,6 +322,11 @@ class SessionTracker:
 
         transitions_only 면 상태가 바뀐 것(생성·종료·미확인·복귀, 작업 상태 변화)만 돌려준다. 누적값만
         바뀐 것은 dirty 로 남겨 두었다가 다음 전체 호출 때 쓴다. 보고가 1초마다 올 때 DB 쓰기를 줄이기 위해서다.
+
+        requeue 로 돌려받은 것은 전체 호출이 늘 함께 내고, transitions_only 호출도 낼 전이가 있으면 함께 낸다.
+        작업이 그 세션보다, 옛 세션의 종료가 같은 프로세스의 새 세션보다 같은 저장에서 먼저 쓰여야 외래 키와
+        uq_session_open_key 에 걸리지 않는다 (Repository.save). 전이가 없으면 돌려받은 것이 있어도 빈 결과라
+        그 보고는 DB 에 닿지 않는다.
         """
         if transitions_only:
             workloads = [self.workloads[i] for i in self._wl_transitions if i in self.workloads]
@@ -280,21 +334,44 @@ class SessionTracker:
         else:
             workloads = [w for w in self.workloads.values() if w.dirty]
             sessions = [s for s in self.sessions.values() if s.dirty]
+        if not transitions_only or workloads or sessions:
+            # 돌려받은 것이 그사이 다시 dirty 가 됐을 수 있다. 같은 객체이므로 id 로 한 번만 낸다
+            wl_by_id = self._retry_workloads | {w.id: w for w in workloads}
+            s_by_id = self._retry_sessions | {s.id: s for s in sessions}
+            self._retry_workloads, self._retry_sessions = {}, {}
+            workloads, sessions = list(wl_by_id.values()), list(s_by_id.values())
         self._wl_transitions.clear()
         self._transitions.clear()
         for w in workloads:
             w.dirty = False
+        # 돌려받은 끝난 세션·작업은 이미 메모리에서 빠졌고, 같은 키로 새 세션·작업이 생겼을 수 있다
+        # (사라졌던 프로세스가 다시 보임). 색인이 아직 그 객체를 가리킬 때만 뺀다
         for s in sessions:
             s.dirty = False
-            if s.status == "ended":
-                self.sessions.pop(s.key, None)
+            if s.status == "ended" and self.sessions.get(s.key) is s:
+                del self.sessions[s.key]
                 self._sessions_by_wl[s.workload_id].discard(s.key)
         for w in workloads:
-            if w.status == "ended" and not self._sessions_by_wl.get(w.id):
-                self.workloads.pop(w.id, None)
-                self._wl_by_key.pop(w.key, None)
+            if (
+                w.status == "ended"
+                and self.workloads.get(w.id) is w
+                and not self._sessions_by_wl.get(w.id)
+            ):
+                del self.workloads[w.id]
+                if self._wl_by_key.get(w.key) is w:
+                    del self._wl_by_key[w.key]
                 self._sessions_by_wl.pop(w.id, None)
         return workloads, sessions
+
+    def requeue(self, workloads: Iterable[Workload], sessions: Iterable[Session]) -> None:
+        """take_dirty 가 돌려준 것을 호출한 쪽이 DB 에 쓰지 못했다. 다음 take_dirty 가 다시 돌려준다.
+
+        같은 객체를 들고 있으므로 그때의 최신 상태가 쓰인다. 끝난 세션·작업은 이미 메모리에서 빠져 여기에만
+        남는다. 다음 tick(10초), 샘플 저장, 전이가 있는 보고 중 먼저 오는 것이 쓴다. 전이도 샘플 저장도 없는
+        보고는 이것을 쓰지 않는다 (호스트명이 바뀐 보고도 노드 행만 쓴다).
+        """
+        self._retry_workloads.update((w.id, w) for w in workloads)
+        self._retry_sessions.update((s.id, s) for s in sessions)
 
     def restore(self, workloads: Iterable[Workload], sessions: Iterable[Session]) -> None:
         """재시작 시 DB 의 열린 작업·세션을 되살린다. 실제 상태는 모르므로 전부 unknown 으로 둔다."""
@@ -313,6 +390,7 @@ class SessionTracker:
             self.sessions[s.key] = s
             self._sessions_by_wl[s.workload_id].add(s.key)
             self._open_by_node[s.node].add(s.key)
+            self._open_by_gpu[s.gpu_uuid][_proc_key(s.key)] = s.key
             self._node_boot.setdefault(s.node, s.boot_id)
         for node in list(self._open_by_node):
             self._refresh_workloads(node)
@@ -402,6 +480,23 @@ class SessionTracker:
             session.util_samples += 1
         session.dirty = True
 
+    def _holder(self, key: SessionKey) -> Session | None:
+        """key 와 같은 프로세스의 열린 세션을 다른 노드가 가지고 있으면 그 세션."""
+        held = self._open_by_gpu.get(key[1], {}).get(_proc_key(key))
+        return self.sessions[held] if held is not None and held != key else None
+
+    def _warn_blocked(self, node: str, holder: str) -> None:
+        """두 노드 쌍마다 한 번만 남긴다. 이어받고 나서 다시 막히면 또 남긴다."""
+        if (node, holder) in self._blocked_warned:
+            return
+        self._blocked_warned.add((node, holder))
+        log.warning(
+            "노드 %s 가 보고한 프로세스의 세션이 노드 %s 에 열려 있다. 그 노드가 비활성화되면 이어받는다 "
+            "(식별자를 바꾼 것이 아니면 한 머신에서 에이전트가 둘 도는지 본다)",
+            node,
+            holder,
+        )
+
     def _end(self, session: Session, reason: EndedReason) -> None:
         session.status = "ended"
         session.ended_reason = reason
@@ -410,6 +505,12 @@ class SessionTracker:
         session.dirty = True
         self._transitions.add(session.key)
         self._open_by_node[session.node].discard(session.key)
+        procs = self._open_by_gpu.get(session.gpu_uuid, {})
+        proc = _proc_key(session.key)
+        if procs.get(proc) == session.key:
+            del procs[proc]
+            if not procs:
+                del self._open_by_gpu[session.gpu_uuid]
 
     def _end_all(self, node: str, reason: EndedReason) -> None:
         for key in list(self._open_by_node.get(node, ())):

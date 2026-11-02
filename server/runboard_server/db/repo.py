@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import create_engine, delete, exists, func, inspect, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import DataError, IntegrityError
+from sqlalchemy.exc import DataError, DBAPIError, IntegrityError, StatementError
 from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy.orm import sessionmaker
 
@@ -68,6 +68,31 @@ def _bucket_bound(ts: float) -> int:
     정수 b 에 대해 b < ts 와 b < ceil(ts), b >= ts 와 b >= ceil(ts) 는 같은 뜻이다.
     """
     return math.ceil(ts)
+
+
+def _workload_row(w: Workload) -> WorkloadRow:
+    return WorkloadRow(**{f: getattr(w, f) for f in _WORKLOAD_FIELDS})
+
+
+def _session_row(s: Session) -> SessionRow:
+    return SessionRow(**{f: getattr(s, f) for f in _SESSION_FIELDS})
+
+
+def _row_fault(exc: Exception) -> bool:
+    """그 행의 값 탓인 실패인가. 다시 해도 같으므로 그 행만 건너뛴다.
+
+    제약 위반(IntegrityError), DB 가 받지 않는 값(DataError), DB 에 보내기 전에 값을 바꾸다 난 예외가 그렇다.
+    짝 없는 서로게이트(JSON 의 "\\udcff")는 psycopg 가 UnicodeEncodeError 를 감싸지 않고 그대로 올린다. 이런 행을
+    돌려주면 다음 저장마다 다시 실패해 모든 노드의 저장이 멈춘다. 연결 끊김, 권한·스키마 문제 같은 나머지 DB
+    오류와 SQLAlchemy 자체 오류는 행 탓이 아니다.
+    """
+    if isinstance(exc, (IntegrityError, DataError)):
+        return True
+    if isinstance(exc, DBAPIError):
+        return False
+    if isinstance(exc, StatementError):  # 바인드 값 처리에서 난 예외를 SQLAlchemy 가 감싼 것
+        exc = exc.orig
+    return isinstance(exc, (ValueError, TypeError))
 
 
 def _entries(model: type[BaseModel], rows: Iterable) -> list:
@@ -178,15 +203,56 @@ class Repository:
     # ------------------------------------------------------------------ 작업·세션
 
     def save(self, workloads: Iterable[Workload], sessions: Iterable[Session]) -> None:
+        """작업, 끝난 세션, 나머지 세션 순서로 한 트랜잭션에 쓴다.
+
+        열린 세션의 유일 인덱스(uq_session_open_key)는 문장마다 검사한다. 같은 프로세스의 옛 세션을 끝내는
+        UPDATE 가 새 세션의 INSERT 보다 먼저 나가야 한다 (다른 노드가 이어받을 때, 돌려받은 종료와 다시
+        나타난 프로세스가 함께 올 때). 그래서 끝난 세션까지 쓰고 flush 한 뒤 나머지를 쓴다. 세션의 작업과
+        돌려받은 옛 종료는 SessionTracker.take_dirty 가 늘 같은 저장에 함께 낸다.
+
+        행 탓인 실패(_row_fault)면 같은 순서로 한 행씩 다시 쓰고 그래도 안 되는 행만 건너뛴다 (_save_each).
+        다른 실패(연결 끊김 등)는 그대로 올린다. 엔진이 꺼낸 것을 전부 tracker 에 돌려준다.
+        """
         workloads = list(workloads)
         sessions = list(sessions)
         if not workloads and not sessions:
             return
+        first = [_workload_row(w) for w in workloads]
+        first += [_session_row(s) for s in sessions if s.status == "ended"]
+        rest = [_session_row(s) for s in sessions if s.status != "ended"]
+        try:
+            with self._sessions.begin() as db:
+                for row in first:
+                    db.merge(row)
+                db.flush()
+                for row in rest:
+                    db.merge(row)
+        except Exception as exc:
+            if not _row_fault(exc):
+                raise
+            self._save_each(first + rest)
+
+    def _save_each(self, rows: list[WorkloadRow | SessionRow]) -> None:
+        """한 트랜잭션 안에서 행마다 savepoint 를 두고 쓴다. 행 탓으로 실패하는 행은 경고를 남기고 건너뛴다.
+
+        그 행의 값 탓이라 다시 해도 같으므로 건너뛴 행은 돌려주지 않는다. 열린 세션은 다음 보고 때 다시
+        dirty 가 되어 또 시도한다. 세션의 작업 행을 건너뛰었으면 그 세션도 외래 키 위반으로 건너뛴다.
+        다른 실패(연결 끊김 등)는 아무것도 쓰지 않고 올린다.
+        """
         with self._sessions.begin() as db:
-            for w in workloads:
-                db.merge(WorkloadRow(**{f: getattr(w, f) for f in _WORKLOAD_FIELDS}))
-            for s in sessions:
-                db.merge(SessionRow(**{f: getattr(s, f) for f in _SESSION_FIELDS}))
+            for row in rows:
+                try:
+                    with db.begin_nested():
+                        db.merge(row)
+                except Exception as exc:
+                    if not _row_fault(exc):
+                        raise
+                    log.warning(
+                        "%s 행을 쓰지 못해 건너뛴다 (id %s): %s",
+                        row.__tablename__,
+                        row.id,
+                        getattr(exc, "orig", None) or exc,
+                    )
 
     def load_nodes(self, prefix: str = "Server_") -> list[NodeState]:
         """재시작 복원용: 알려진 노드 전부. GPU 는 마지막 샘플 값으로 채우고 연결 상태는 끊김으로 둔다.
