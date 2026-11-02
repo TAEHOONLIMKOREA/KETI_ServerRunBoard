@@ -11,6 +11,7 @@ dockerd 의 진짜 소켓은 root 만 여는 자리(/run/runboard-docker/docker.
 - runboard.owner 에도 같은 값을 적는다. 사용자가 적은 값은 덮어쓴다. 실행 계정이 root 면 사람이 아니므로 지운다.
 - 진짜 소켓 폴더를 컨테이너에 마운트하는 요청은 거부한다. 중계를 건너뛰는 가장 쉬운 길이라서다.
 나머지 요청과 attach·exec·BuildKit 같은 스트림 연결은 바이트 그대로 넘긴다. 응답은 해석하지 않는다.
+멈출 때(SIGTERM)는 새 연결을 받지 않고, 열린 연결이 끝나기를 2초 기다린 뒤 남은 연결(attach·logs -f 등)은 끊는다.
 
 docker 권한은 사실상 root 권한이라 작정한 우회(/ 마운트 등)까지 막지는 못한다. 평소 사용을 정확히 남기는 것이 목적이다.
 """
@@ -25,6 +26,7 @@ import re
 import signal
 import socket
 import struct
+import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +43,11 @@ SD_LISTEN_FDS_START = 3
 MAX_HEAD = 64 * 1024
 MAX_CREATE_BODY = 8 * 1024 * 1024
 CHUNK = 64 * 1024
+STOP_GRACE = 2.0  # 멈출 때 열린 연결이 스스로 끝나기를 기다리는 시간(초). 지나면 끊는다
+# 받기(accept)를 멈춘 뒤 이미 받은 연결이 handle 을 시작하기까지 기다리는 이벤트 루프 바퀴 수.
+# asyncio 는 transport 생성 → connection_made → handle 작업 시작을 바퀴마다 하나씩 한다. 3.10~3.12 에서는
+# 3바퀴면 되지만 버전마다 다를 수 있어 넉넉히 둔다
+_ACCEPT_TURNS = 5
 
 _CREATE = re.compile(r"^(?:/v[\d.]+)?/containers/create$")
 # Upgrade 헤더 없이 연결을 넘겨받는(hijack) 예전 클라이언트도 있어 경로로도 본다
@@ -256,6 +263,41 @@ def _write_eof(writer: asyncio.StreamWriter) -> None:
         pass
 
 
+def _abort(transport: asyncio.WriteTransport) -> None:
+    """바로 끊는다. 닫는 중인데 보낼 것도 없으면 이미 닫혔거나 곧 닫히므로 그대로 둔다.
+
+    close() 뒤 남은 데이터를 다 보내고 닫힌 transport 에 abort() 를 부르면 asyncio 가 AttributeError 를 낸다.
+    """
+    if not transport.is_closing() or transport.get_write_buffer_size():
+        transport.abort()
+
+
+async def _settle_accepted() -> None:
+    """이미 받은 연결이 handle 을 시작할 때까지 이벤트 루프를 몇 바퀴 돌린다."""
+    for _ in range(_ACCEPT_TURNS):
+        await asyncio.sleep(0)
+
+
+@dataclass(eq=False)
+class _Connection:
+    """중계 중인 연결 하나: 클라이언트 쪽, dockerd 쪽(붙은 뒤), 둘을 잇는 handle 작업."""
+
+    task: asyncio.Task[None]
+    client: asyncio.StreamWriter
+    upstream: asyncio.StreamWriter | None = None
+
+    def abort(self) -> None:
+        """양쪽을 바로 끊는다. 읽던 쪽이 끝나므로 handle 은 스스로 마친다.
+
+        dockerd 에 아직 붙는 중이면 끊을 연결이 없어 작업을 취소한다.
+        """
+        _abort(self.client.transport)
+        if self.upstream is not None:
+            _abort(self.upstream.transport)
+        else:
+            self.task.cancel()
+
+
 class DockerProxy:
     def __init__(
         self,
@@ -269,8 +311,19 @@ class DockerProxy:
         self.owner_label = owner_label
         self.identify = identify
         self.real_dir = real_dir or os.path.dirname(upstream)
+        self._connections: set[_Connection] = set()
+        self._closing = False
 
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        if self._closing:
+            # 남은 연결을 끊기 시작한 뒤에야 시작했다. serve 는 받아 둔 연결이 시작한 뒤에 끊으므로 대비일 뿐이다
+            writer.transport.abort()
+            return
+        task = asyncio.current_task()
+        assert task is not None  # start_unix_server 는 연결마다 작업을 띄워 handle 을 돌린다
+        conn = _Connection(task, writer)
+        self._connections.add(conn)
+        pipes: list[asyncio.Task[None]] = []
         try:
             launcher = self.identify(writer.get_extra_info("socket"))
             try:
@@ -282,20 +335,50 @@ class DockerProxy:
                     writer, 502, f"runboard: Docker 데몬({self.upstream})에 연결할 수 없다: {exc}"
                 )
                 return
+            conn.upstream = up_writer
             responses = asyncio.create_task(_pipe(up_reader, writer))
             requests = asyncio.create_task(self._forward(reader, up_writer, writer, launcher))
+            pipes = [responses, requests]
             done, _ = await asyncio.wait({responses, requests}, return_when=asyncio.FIRST_COMPLETED)
             if requests in done:
                 # 클라이언트가 보내기를 끝냈다. dockerd 에 알리고 남은 응답(attach 출력 등)을 끝까지 넘긴다
                 _write_eof(up_writer)
                 await responses
-            else:
-                requests.cancel()
-            up_writer.close()
         except Exception:
             log.exception("연결 처리 실패")
         finally:
+            # 예외·취소로 빠져나와도 남은 파이프를 멈추고 양쪽을 닫는다
+            for pipe in pipes:
+                pipe.cancel()
+            if conn.upstream is not None:
+                conn.upstream.close()
             writer.close()
+            try:
+                await writer.wait_closed()  # 덜 보낸 응답이 다 나가 닫힐 때까지 열린 연결로 센다
+            except OSError:
+                pass
+            finally:
+                self._connections.discard(conn)
+
+    async def close_connections(self, grace: float) -> int:
+        """새 연결을 받지 않게 한 뒤 부른다. 열린 연결이 grace 초 안에 끝나기를 기다리고, 남은 연결은 끊는다.
+
+        끊은 연결 수를 돌려준다. Python 3.12.1 부터 asyncio.Server.wait_closed() 는 받은 연결이 모두 닫혀야
+        돌아온다. attach·exec -it·logs -f 같은 긴 연결을 두면 중계가 끝나지 않고, 그동안 systemd 소켓에 쌓인
+        새 docker 명령도 기다린다.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + grace
+        # 기다리는 사이에 늦게 시작한 연결이 있어도 마감까지 함께 기다린다
+        while self._connections and (remaining := deadline - loop.time()) > 0:
+            await asyncio.wait({c.task for c in self._connections}, timeout=remaining)
+        self._closing = True
+        left = list(self._connections)
+        for conn in left:
+            conn.abort()
+        if left:
+            await asyncio.wait({c.task for c in left})
+        return len(left)
 
     async def _forward(
         self,
@@ -399,10 +482,27 @@ def _share_with_docker_group(path: str) -> None:
             log.warning("docker 그룹이 없어 %s 는 root 만 쓸 수 있다", path)
 
 
-async def serve(proxy: DockerProxy, *, listen: str | None = None) -> None:
+async def serve(
+    proxy: DockerProxy,
+    *,
+    listen: str | None = None,
+    stop: asyncio.Event | None = None,
+    grace: float = STOP_GRACE,
+) -> None:
+    """stop 이 켜질 때까지 중계한다. stop 을 주지 않으면 SIGINT·SIGTERM 에 멈춘다.
+
+    멈출 때는 새 연결을 받지 않고, 열린 연결은 grace 초 기다린 뒤 끊는다 (DockerProxy.close_connections).
+    """
     sock = _activated_socket()
     if sock is not None:
-        server = await asyncio.start_unix_server(proxy.handle, sock=sock, limit=MAX_HEAD)
+        # Python 3.13 부터 asyncio 는 서버를 닫을 때 소켓 파일을 지운다. 이 소켓(/run/docker.sock)은 systemd 가 쥐고
+        # 있다가 다음 중계에 넘기므로 남긴다. 지우면 그 뒤 docker 명령이 소켓을 찾지 못한다
+        if sys.version_info >= (3, 13):
+            server = await asyncio.start_unix_server(
+                proxy.handle, sock=sock, limit=MAX_HEAD, cleanup_socket=False
+            )
+        else:
+            server = await asyncio.start_unix_server(proxy.handle, sock=sock, limit=MAX_HEAD)
         where = "systemd 소켓"
     elif listen:
         server = await asyncio.start_unix_server(proxy.handle, path=listen, limit=MAX_HEAD)
@@ -417,10 +517,22 @@ async def serve(proxy: DockerProxy, *, listen: str | None = None) -> None:
         proxy.owner_label,
         LAUNCHER_LABEL,
     )
-    stop = asyncio.Event()
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop.set)
+    if stop is None:
+        stop = asyncio.Event()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, stop.set)
     async with server:
         await stop.wait()
-    log.info("Docker 소켓 중계 종료")
+        # 새 연결은 받지 않는다. systemd 소켓이면 그동안 온 연결은 커널이 쌓아 두었다가 다음 중계가 받는다.
+        # 서버부터 닫으면 asyncio 는 이미 받았지만 transport 를 아직 만들지 않은 연결을 버린다. 그래서 받기를 먼저
+        # 멈추고, 그 연결이 handle 을 시작한 뒤에 닫는다
+        for listener in server.sockets:
+            loop.remove_reader(listener.fileno())
+        await _settle_accepted()
+        server.close()
+        cut = await proxy.close_connections(grace)
+    if cut:
+        log.info("Docker 소켓 중계 종료: %g초 안에 끝나지 않은 연결 %d개를 끊었다", grace, cut)
+    else:
+        log.info("Docker 소켓 중계 종료")

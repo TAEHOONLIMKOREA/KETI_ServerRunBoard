@@ -10,6 +10,8 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/runboard/venv/bin/runboard-agent docker-proxy --upstream /run/runboard-docker/docker.sock
 Restart=always
 RestartSec=1
+# 멈출 때 열린 연결은 2초 기다린 뒤 끊는다. 그래도 안 끝나면 10초에 강제 종료 (기본 90초 동안 docker 명령이 멈춘다)
+TimeoutStopSec=10
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
