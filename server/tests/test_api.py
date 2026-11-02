@@ -46,6 +46,20 @@ def test_auth(client, fake_report):
     assert post(client, gpu01, token="dev-token-fake01").status_code == 401, "다른 노드 토큰"
 
 
+def test_non_ascii_token_is_401(client, app, fake_report):
+    """Starlette 는 헤더 값을 latin-1 로 읽으므로 ASCII 가 아닌 토큰이 ASCII 가 아닌 문자열로 온다.
+
+    문자열끼리 hmac.compare_digest 로 비교하면 TypeError 라 500 이었다.
+    """
+    auth = app.state.config.auth
+    auth.shared_token = "join-token"
+    for node in ("fake01", "gpu01", "other"):  # 평문 노드 토큰, sha256 노드 토큰, 등록 토큰
+        assert verify_node_token(auth, node, "토큰") is False
+    headers = {"Content-Type": "application/json", "Authorization": "Bearer 토큰".encode()}
+    report = fake_report(now=BASE + 5).model_dump_json()
+    assert client.post("/api/v1/report", content=report, headers=headers).status_code == 401
+
+
 def test_invalid_report_is_422(client):
     r = client.post(
         "/api/v1/report",

@@ -17,11 +17,19 @@ def bearer_token(authorization: str | None) -> str:
     return token.strip()
 
 
+def _same(expected: str, token: str) -> bool:
+    """UTF-8 바이트로 비교한다. compare_digest 는 str 에 ASCII 가 아닌 문자가 있으면 TypeError 를 낸다.
+
+    Starlette 는 헤더 값을 latin-1 로 읽으므로 ASCII 가 아닌 토큰은 ASCII 가 아닌 문자열로 온다 (500 이 아니라 401).
+    """
+    return hmac.compare_digest(expected.encode("utf-8"), token.encode("utf-8"))
+
+
 def _matches(expected: str, token: str) -> bool:
     if expected.startswith("sha256:"):
         digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        return hmac.compare_digest(expected[len("sha256:") :].lower(), digest)
-    return hmac.compare_digest(expected, token)
+        return _same(expected[len("sha256:") :].lower(), digest)
+    return _same(expected, token)
 
 
 def verify_node_token(
@@ -34,4 +42,4 @@ def verify_node_token(
         expected = auth.node_tokens.get(name) if name else None
         if expected and _matches(expected, token):
             return True
-    return bool(auth.shared_token) and hmac.compare_digest(auth.shared_token or "", token)
+    return bool(auth.shared_token) and _same(auth.shared_token or "", token)
