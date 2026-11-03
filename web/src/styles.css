@@ -918,6 +918,75 @@ td.notice-cell {
   overflow-wrap: anywhere;
 }
 
+/* ---------- 메뉴얼 (/manual): README.md 를 빌드 때 HTML 로 바꾼 글 (Manual.tsx) ----------
+   글 폭은 읽기 좋게 1000px 까지. 그림은 글 폭에 맞춰 줄이고, 긴 주소처럼 끊을 곳이 없는 글자만 아무 데서나 끊는다 */
+.manual {
+  max-width: 1000px;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.manual h1 {
+  margin: 6px 0 10px;
+  font-size: 22px;
+}
+.manual h2 {
+  margin: 28px 0 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 18px;
+}
+.manual h3 {
+  margin: 20px 0 8px;
+  font-size: 15px;
+}
+.manual p,
+.manual ul,
+.manual ol,
+.manual table {
+  margin: 0 0 10px;
+}
+.manual li {
+  margin: 3px 0;
+}
+.manual li > p {
+  margin: 0;
+}
+.manual a {
+  color: var(--accent);
+}
+.manual img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.manual code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.manual pre {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  overflow-x: auto;
+}
+.manual pre code {
+  padding: 0;
+  background: none;
+}
+.manual blockquote {
+  margin: 0 0 10px;
+  padding: 2px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
 /* ---------- 이력 차트 (노드 상세): GPU 마다 작은 차트 하나, 범례는 묶음 위에 한 번 ----------
    SVG 는 0~100 백분율 좌표를 상자에 맞춰 늘리고 선 굵기만 고정한다. 글자·십자선·툴팁은 같은 백분율 위치의 HTML 이다
    (HistoryChart.tsx). 사용률 평균은 면, 최대는 얇은 선, 메모리 사용 비율은 중립색 선이다. */
