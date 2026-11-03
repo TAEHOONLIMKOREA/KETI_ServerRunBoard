@@ -1605,7 +1605,7 @@ journalctl -u runboard-agent -n 50 --no-pager
 | `web/` | React 18 + Vite + TypeScript + TanStack Query. 화면(`src/pages`), 부품(`src/components`), 아이콘·manifest(`public`) |
 | `deploy/` | `docker-compose.yml`, `runboard.example.yaml`, `install-agent.sh`, `start-agent.sh` |
 | `README.md`, `README_DEV.md` | 개요·사용 방법·주의사항, 그리고 이 문서 |
-| `docs/` | 그림(`img/`) |
+| `docs/` | 그림(`img/`)과 README 안내 그림의 번호 표시 원본(`annotations/`) |
 | `pyproject.toml` | 루트는 패키지가 아니다. ruff·pytest 설정만 둔다 |
 | `requirements-dev.txt` | 세 패키지를 개발용으로 설치한다 |
 
@@ -1712,6 +1712,13 @@ google-chrome --headless=new --hide-scrollbars --force-device-scale-factor=1 --b
 - Chrome 120 의 새 headless 모드는 그림 높이가 `--window-size` 의 높이보다 77 px 작다 (1320,928 → 1320×851). 폭은 그대로다.
 - `--blink-settings=preferredColorScheme=1` 은 라이트 테마로 찍는다.
 - 노드 상세 그림(`node-detail.png`)은 차트가 다 그려진 뒤 페이지 전체를 찍은 것이다 (`/nodes/fake01?range=24h`). 이력 차트를 채우려면 원본 샘플이 쌓여 있어야 한다.
+- `gpus.png` 는 `/gpus` 를 창 높이 900 으로, `admin.png` 는 `/admin`(사용자 탭)을 창 높이 928 로 찍은 것이다. 이 둘은 가짜 수집기의 기준 시각(`_EPOCH`)을 지금의 4시간 전으로 바꾼 에이전트로 찍어 경과가 몇 시간·며칠로 보인다.
+- README 의 `dashboard-guide.png` 와 `admin-guide.png` 는 `dashboard.png`·`admin.png` 위에 번호 상자를 얹은 것이다. `docs/annotations/` 의 HTML 이 바탕 그림을 `<img>` 로 넣고 그 위에 상자와 번호를 절대 좌표로 놓는다. 바탕 그림을 다시 찍었으면 좌표를 맞춘 뒤 레포 루트에서 같은 크기로 찍는다.
+
+```bash
+google-chrome --headless=new --hide-scrollbars --force-device-scale-factor=1 --window-size=1320,928 --virtual-time-budget=2000 --screenshot=docs/img/dashboard-guide.png file://$PWD/docs/annotations/dashboard-guide.html
+google-chrome --headless=new --hide-scrollbars --force-device-scale-factor=1 --window-size=1320,928 --virtual-time-budget=2000 --screenshot=docs/img/admin-guide.png file://$PWD/docs/annotations/admin-guide.html
+```
 
 ## 11. 알려진 한계
 

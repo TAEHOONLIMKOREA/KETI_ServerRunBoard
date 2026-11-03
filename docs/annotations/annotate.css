@@ -1,0 +1,5 @@
+body{margin:0;background:#f4f5f7}
+.wrap{position:relative;width:1320px}
+img{display:block;width:1320px}
+.box{position:absolute;border:3px solid #dc2626;border-radius:8px;box-shadow:0 0 0 2px rgba(255,255,255,.9);box-sizing:border-box}
+.b{position:absolute;width:30px;height:30px;border-radius:50%;background:#dc2626;color:#fff;font:700 17px/30px system-ui,-apple-system,sans-serif;text-align:center;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);transform:translate(-50%,-50%);box-sizing:content-box}
