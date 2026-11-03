@@ -76,6 +76,8 @@ has_docker() { command -v docker >/dev/null 2>&1 && systemctl cat docker.service
 socket_listen() { systemctl show docker.socket -p Listen --value 2>/dev/null || true; }
 proxy_in_place() { [[ -f "$DROPIN" && "$(socket_listen)" == *"$REAL_SOCK"* ]]; }
 live_restore() { docker info --format '{{.LiveRestoreEnabled}}' 2>/dev/null || echo "알 수 없음"; }
+# daemon.json 을 고칠 Python. 에이전트 venv 가 있으면 그것(install-agent.sh 가 3.10 이상을 보장한다), 없으면 시스템 python3
+json_python() { if [[ -x "$PREFIX/venv/bin/python" ]]; then echo "$PREFIX/venv/bin/python"; else echo python3; fi; }
 
 running_count() {
   local ids
@@ -109,7 +111,7 @@ ensure_live_restore() {
   if [[ -f "$DAEMON_JSON" && ! -f "$DAEMON_JSON.runboard-bak" ]]; then
     cp -p "$DAEMON_JSON" "$DAEMON_JSON.runboard-bak"
   fi
-  python3 - "$DAEMON_JSON" <<'PY'
+  "$(json_python)" - "$DAEMON_JSON" <<'PY'
 import json
 import sys
 
