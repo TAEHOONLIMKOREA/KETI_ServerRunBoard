@@ -1,6 +1,6 @@
 """RunBoard 에이전트 ↔ 서버 보고 스키마.
 
-에이전트가 POST /api/v1/report 로 보내는 보고 JSON 을 pydantic 모델로 정의한다 (docs/RUNBOARD.md '6. API').
+에이전트가 POST /api/v1/report 로 보내는 보고 JSON 을 pydantic 모델로 정의한다 (README_DEV.md '6. API').
 에이전트는 보내기 전에, 서버는 받은 뒤에 같은 모델로 검증한다.
 
 원칙:

@@ -1,10 +1,10 @@
-# KETI Server RunBoard
+# KETI Server RunBoard 개발·운영 문서
 
 RunBoard 는 연구실 GPU 서버의 GPU 를 누가 어떤 작업으로 쓰고 있는지 한 화면에 보여 주는 대시보드다. GPU 노드마다 도는 에이전트가 GPU 지표·프로세스·실행 계정·컨테이너 정보를 서버로 보내고, 서버가 프로세스를 작업으로 묶고 소유자를 판정해 웹 화면과 API 로 보여 준다.
 
-사내용(KETI 내부) 문서이며 외부에 배포하지 않는다. 2026-11-02 의 코드를 기준으로 지금의 동작만 적는다.
+이 문서는 동작 원리, 설정, 데이터베이스, API, 웹 화면, 명령줄, 배포와 운영, 개발 환경을 자세히 적은 개발자·운영자용 문서다. 개요와 사용 방법, 주의사항은 [README.md](README.md) 에 있다. 사내용(KETI 내부) 문서이며 외부에 배포하지 않는다. 2026-11-03 의 코드를 기준으로 지금의 동작만 적는다.
 
-![대시보드. 노드 카드마다 GPU 한 장이 한 줄이고 행 색은 작업 소유자의 색이다](img/dashboard.png)
+![대시보드. 노드 카드마다 GPU 한 장이 한 줄이고 행 색은 작업 소유자의 색이다](docs/img/dashboard.png)
 
 ## 목차
 
@@ -1097,7 +1097,7 @@ GPU 뱃지(`지연`, `낮은 활동`, `수집 불가`, `온도`, `수집 오류`
 
 #### 이력 차트
 
-![노드 상세. 정보 칸, GPU 표, 작업 표 아래에 GPU 마다 24시간 이력 차트가 있다](img/node-detail.png)
+![노드 상세. 정보 칸, GPU 표, 작업 표 아래에 GPU 마다 24시간 이력 차트가 있다](docs/img/node-detail.png)
 
 `이력` 제목 옆의 `24시간`·`7일` 버튼으로 기간을 고르고, 기간은 주소의 `?range=` 에 둔다. 그 옆에 `5분 단위 · 11. 1. (일) 22:55 까지` 처럼 점 간격과 마지막 구간이 끝나는 시각을 적는다.
 
@@ -1371,7 +1371,7 @@ Docker 없이 띄울 때는 개발 환경(10장)처럼 설치하고 `runboard-se
 
 ### GPU 노드 설치
 
-GPU 노드(Ubuntu·Debian 계열)에서 root 로 실행한다. Python 3.10 이상과 venv 모듈이 없으면 `install-agent.sh` 가 apt 로 설치하고(아래 `install-agent.sh` 의 1단계), 의존 패키지는 PyPI 에서 받는다. 레포는 sparse checkout 으로 에이전트에 필요한 `agent/`, `common/`, `deploy/` 만 받는다 (아래 '레포 받기'). `start-agent.sh` 는 에이전트와 Docker 소켓 중계를 함께 설치하고, 에이전트 설치는 `install-agent.sh` 를 불러서 한다. 몇 번을 다시 실행해도 된다.
+GPU 노드(Ubuntu 22.04 이상. 스크립트는 apt 를 쓰므로 다른 Debian 계열에서도 돌 수 있지만 지원하지 않는다)에서 root 로 실행한다. Python 3.10 이상과 venv 모듈이 없으면 `install-agent.sh` 가 apt 로 설치하고(아래 `install-agent.sh` 의 1단계), 의존 패키지는 PyPI 에서 받는다. 레포는 sparse checkout 으로 에이전트에 필요한 `agent/`, `common/`, `deploy/` 만 받는다 (아래 '레포 받기'). `start-agent.sh` 는 에이전트와 Docker 소켓 중계를 함께 설치하고, 에이전트 설치는 `install-agent.sh` 를 불러서 한다. 몇 번을 다시 실행해도 된다.
 
 ```bash
 git clone --filter=blob:none --sparse git@github.com:TAEHOONLIMKOREA/KETI_ServerRunBoard.git && cd KETI_ServerRunBoard
@@ -1426,7 +1426,7 @@ journalctl -u runboard-agent -u runboard-docker-proxy -f
 
 1. Python. `--python`(기본 `python3`)이 3.10 이상이고 venv 모듈(`ensurepip`)이 있는지 본다. 모자라면 `apt-get update` 뒤 `apt-get install` 로 채운다. `apt-get update` 가 일부 실패해도(죽은 PPA 등) 있는 목록으로 계속하고, apt-get 이 없는 배포판이면 `중단:` 으로 끝난다.
    - 인터프리터가 없으면 같은 이름의 패키지(`python3`, `python3.11` …)를 설치한다. 경로로 지정했으면 설치하지 않고 멈춘다.
-   - `python3` 가 3.10 보다 낮으면 저장소에서 설치할 수 있는 `python3.12`·`python3.11`·`python3.10` 중 첫 것을 `-venv` 와 함께 설치하고 그것으로 venv 를 만든다. 하나도 없으면(Ubuntu 20.04 등) deadsnakes PPA(`add-apt-repository ppa:deadsnakes/ppa`) 안내와 함께 멈춘다. `--python` 으로 지정한 것이 낮으면 설치하지 않고 멈춘다.
+   - `python3` 가 3.10 보다 낮으면 저장소에서 설치할 수 있는 `python3.12`·`python3.11`·`python3.10` 중 첫 것을 `-venv` 와 함께 설치하고 그것으로 venv 를 만든다. 하나도 없으면(지원하지 않는 Ubuntu 20.04 등) deadsnakes PPA(`add-apt-repository ppa:deadsnakes/ppa`) 안내와 함께 멈춘다. `--python` 으로 지정한 것이 낮으면 설치하지 않고 멈춘다.
    - venv 모듈이 없으면 `python3.X-venv` 를 설치한다.
 2. 시스템 계정 `runboard`(홈 없음, 로그인 불가)를 만든다. `docker` 그룹이 있으면 넣는다. 에이전트보다 Docker 를 늦게 설치했다면 `start-agent.sh` 를 다시 실행해 그룹에 넣고 에이전트를 다시 시작한다.
 3. `<prefix>/venv` 를 만들고 `common`·`agent` 를 설치·갱신한다. 전에 3.10 보다 낮은 Python 으로 만든 venv 가 있으면 지우고 다시 만든다.
@@ -1604,7 +1604,8 @@ journalctl -u runboard-agent -n 50 --no-pager
 | `server/` | `runboard-server`: 진입점(`main.py`), `nodes` 명령(`cli.py`), 설정(`config.py`), API(`api/ingest.py`·`query.py`·`admin.py`·`auth.py`), 판정과 추적(`core/engine.py`·`owner.py`·`sessions.py`·`workloads.py`·`detector.py`·`history.py`·`state.py`), DB(`db/models.py`·`repo.py`), 등록 정보(`registry.py`), 공지(`notices.py`), 응답 모델(`views.py`). 웹을 포함하는 `Dockerfile` |
 | `web/` | React 18 + Vite + TypeScript + TanStack Query. 화면(`src/pages`), 부품(`src/components`), 아이콘·manifest(`public`) |
 | `deploy/` | `docker-compose.yml`, `runboard.example.yaml`, `install-agent.sh`, `start-agent.sh` |
-| `docs/` | 이 문서와 그림(`img/`) |
+| `README.md`, `README_DEV.md` | 개요·사용 방법·주의사항, 그리고 이 문서 |
+| `docs/` | 그림(`img/`) |
 | `pyproject.toml` | 루트는 패키지가 아니다. ruff·pytest 설정만 둔다 |
 | `requirements-dev.txt` | 세 패키지를 개발용으로 설치한다 |
 
@@ -1753,6 +1754,7 @@ google-chrome --headless=new --hide-scrollbars --force-device-scale-factor=1 --b
 
 에이전트와 중계:
 
+- 설치 스크립트와 Docker 소켓 중계는 Ubuntu 22.04 이상만 지원한다. apt, systemd, `docker.socket` 소켓 활성화를 전제하므로 그 밖의 환경에서는 손으로 설치한다.
 - 에이전트는 노드 이름·식별자 형식을 시작할 때 검사하지 않는다. 틀리면 떠 있는 채 1초마다 `수집 실패` 와 스택을 남긴다.
 - 실패한 보고는 버린다. 서버가 멈춘 동안의 샘플은 남지 않고 이력 차트에 빈 자리로 보인다.
 - 비밀값 가리기는 키워드가 있는 `이름=값`·`이름:값`·`이름 값` 형태만 가린다 (2장 '명령어의 비밀값 가리기').
