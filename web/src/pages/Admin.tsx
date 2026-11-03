@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { AdminMappings } from "../components/admin/AdminMappings";
 import { AdminNodes } from "../components/admin/AdminNodes";
 import { AdminNotices } from "../components/admin/AdminNotices";
 import { AdminServices } from "../components/admin/AdminServices";
@@ -8,13 +7,12 @@ import { AdminUsers } from "../components/admin/AdminUsers";
 
 const TABS: { key: string; label: string; render: () => ReactNode }[] = [
   { key: "users", label: "사용자", render: () => <AdminUsers /> },
-  { key: "mappings", label: "계정 매핑", render: () => <AdminMappings /> },
   { key: "services", label: "공용 서비스", render: () => <AdminServices /> },
-  { key: "nodes", label: "노드", render: () => <AdminNodes /> },
+  { key: "nodes", label: "서버(노드)", render: () => <AdminNodes /> },
   { key: "notices", label: "공지", render: () => <AdminNotices /> },
 ];
 
-/** 관리: 사용자·계정 매핑·공용 서비스(DB 의 등록 정보), 노드, 공지. 탭은 URL ?tab= 에 둔다. */
+/** 관리: 사용자·공용 서비스(DB 의 등록 정보), 서버(노드), 공지. 탭은 URL ?tab= 에 둔다. */
 export default function Admin() {
   const [params, setParams] = useSearchParams();
   const tab = TABS.find((t) => t.key === params.get("tab")) ?? TABS[0];

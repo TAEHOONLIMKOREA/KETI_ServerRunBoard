@@ -1,6 +1,6 @@
 import { type FormEvent, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { admin, useAccountMappings, useAdminAction, useAdminUsers, useServices } from "../../api";
+import { admin, useAdminAction, useAdminUsers, useServices } from "../../api";
 import { MAX_SLOTS, userPaint } from "../../colors";
 import type { AdminUser } from "../../types";
 import { ErrorBox, Loading } from "../Status";
@@ -22,7 +22,6 @@ function toForm(u: AdminUser): typeof EMPTY {
 /** 등록 사용자. 목록 순서가 대시보드 색 순서다 (앞 8명이 고유색). */
 export function AdminUsers() {
   const { data: users, error, isLoading } = useAdminUsers();
-  const { data: mappings } = useAccountMappings();
   const { data: services } = useServices();
   const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState<string | null>(null);
@@ -68,10 +67,8 @@ export function AdminUsers() {
   }
 
   function confirmDelete(u: AdminUser) {
-    const m = mappings?.filter((x) => x.username === u.username).length ?? 0;
     const s = services?.filter((x) => x.owner === u.username).length ?? 0;
     const effects = [
-      m ? `계정 매핑 ${m}개도 함께 지워집니다.` : "",
       s ? `담당 서비스 ${s}개는 담당자가 비워집니다.` : "",
       "지난 작업 이력의 소유자 이름은 남습니다.",
     ];
@@ -93,7 +90,7 @@ export function AdminUsers() {
         <div className="form-grid">
           <Field
             label="사용자 이름 *"
-            hint={editing ? "작업 이력에 남아 있어 바꿀 수 없습니다" : "호스트 계정명과 같으면 매핑 없이 인식합니다"}
+            hint={editing ? "작업 이력에 남아 있어 바꿀 수 없습니다" : "호스트 계정명과 같으면 자동으로 인식합니다"}
           >
             <input
               value={form.username}

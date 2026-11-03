@@ -21,8 +21,8 @@ export default function UserDetail() {
       {u.username === null && (
         <p className="note">
           소유자를 판정하지 못한 작업입니다. 컨테이너에 <span className="mono">runboard.owner</span> 라벨을
-          붙이거나, 컨테이너명을 <span className="mono">&lt;user&gt;_&lt;용도&gt;</span> 로 짓거나, 관리자에게
-          계정 매핑을 요청하세요.
+          붙이거나, 컨테이너명을 <span className="mono">&lt;user&gt;_&lt;용도&gt;</span> 로 짓거나, 관리 화면의
+          사용자 별칭에 호스트 계정명을 넣으세요.
         </p>
       )}
       <div className="summary">

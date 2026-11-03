@@ -108,7 +108,7 @@ export const sourceLabel: Record<string, string> = {
   label: "라벨",
   container_rule: "컨테이너명 규칙",
   service: "서비스 담당자",
-  account_map: "계정 매핑",
+  account_map: "계정명",
   none: "미확인",
 };
 

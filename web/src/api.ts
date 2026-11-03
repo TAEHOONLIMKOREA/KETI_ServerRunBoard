@@ -1,9 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
-  AccountMapping,
   AdminUser,
   HistoryRange,
-  MappingFields,
   Node,
   NodeHistory,
   NoticeEntry,
@@ -152,13 +150,6 @@ export function useAdminUsers() {
   return useQuery({ queryKey: ["admin", "users"], queryFn: () => getJson<AdminUser[]>("/api/v1/admin/users") });
 }
 
-export function useAccountMappings() {
-  return useQuery({
-    queryKey: ["admin", "account-mappings"],
-    queryFn: () => getJson<AccountMapping[]>("/api/v1/admin/account-mappings"),
-  });
-}
-
 export function useServices() {
   return useQuery({ queryKey: ["admin", "services"], queryFn: () => getJson<ServiceEntry[]>("/api/v1/admin/services") });
 }
@@ -176,10 +167,6 @@ export const admin = {
   updateUser: (username: string, fields: UserFields) => send<AdminUser>("PUT", `${ADMIN}/users/${enc(username)}`, fields),
   deleteUser: (username: string) => send<void>("DELETE", `${ADMIN}/users/${enc(username)}`),
   reorderUsers: (usernames: string[]) => send<AdminUser[]>("PUT", `${ADMIN}/user-order`, { usernames }),
-  createMapping: (fields: MappingFields) => send<AccountMapping>("POST", `${ADMIN}/account-mappings`, fields),
-  updateMapping: (id: number, fields: MappingFields) =>
-    send<AccountMapping>("PUT", `${ADMIN}/account-mappings/${id}`, fields),
-  deleteMapping: (id: number) => send<void>("DELETE", `${ADMIN}/account-mappings/${id}`),
   createService: (fields: ServiceFields) => send<ServiceEntry>("POST", `${ADMIN}/services`, fields),
   updateService: (id: number, fields: ServiceFields) => send<ServiceEntry>("PUT", `${ADMIN}/services/${id}`, fields),
   deleteService: (id: number) => send<void>("DELETE", `${ADMIN}/services/${id}`),

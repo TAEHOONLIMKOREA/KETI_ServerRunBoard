@@ -257,16 +257,6 @@ export interface AdminUser extends UserFields {
   username: string;
 }
 
-export interface MappingFields {
-  node: string | null; // 노드 식별자·호스트명·화면 이름. null 이면 모든 노드
-  uid: number;
-  username: string;
-}
-
-export interface AccountMapping extends MappingFields {
-  id: number;
-}
-
 export interface ServiceFields {
   name: string;
   match_exec_account: string | null;
