@@ -102,7 +102,7 @@ a:hover {
   padding: 12px 16px 40px;
 }
 
-/* ---------- header: 제목 · 검색 · 연결된 노드 수, 한 줄 ---------- */
+/* ---------- header: 제목 · 메뉴 버튼 · 검색 · 연결된 노드 수, 한 줄 ---------- */
 .topbar {
   display: flex;
   align-items: center;
@@ -117,6 +117,37 @@ a:hover {
   font-size: 18px;
   letter-spacing: 0.2px;
   white-space: nowrap;
+}
+/* 메뉴 버튼 세 개(대시보드·메뉴얼·관리). 이력 차트의 기간 선택(.seg)과 같은 묶음 버튼이고 지금 화면의 버튼이 accent 로 찬다 */
+.topnav {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.topnav a {
+  padding: 4px 14px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.topnav a + a {
+  border-left: 1px solid var(--border);
+}
+.topnav a:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+.topnav a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.topnav a[aria-current="page"] {
+  background: var(--accent);
+  color: var(--card);
+  font-weight: 600;
 }
 .topbar .search {
   flex: 1 1 260px;
@@ -724,16 +755,7 @@ h2 {
   opacity: 0.4;
 }
 
-/* ---------- 관리 (/admin): 헤더 링크, 탭, 폼, 버튼 ---------- */
-.navlink {
-  color: var(--muted);
-  font-size: 13px;
-  white-space: nowrap;
-}
-.navlink[aria-current="page"] {
-  color: var(--text);
-  font-weight: 600;
-}
+/* ---------- 관리 (/admin): 탭, 폼, 버튼 ---------- */
 .tabs {
   display: flex;
   flex-wrap: wrap;
