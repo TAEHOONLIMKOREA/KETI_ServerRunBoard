@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useOverview } from "../api";
 import { gpuOwner, gpuPaint } from "../colors";
 import { Badges } from "../components/Badges";
-import { Bar } from "../components/Bar";
+import { Bar, MemBar } from "../components/Bar";
 import { WorkloadLine } from "../components/GpuRow";
 import { SortIcon } from "../components/Icons";
 import { Legend } from "../components/Legend";
@@ -113,12 +113,17 @@ function GpuTableRow({ node, gpu }: { node: Node; gpu: Gpu }) {
         {gpu.mig_enabled && <span className="badge">MIG</span>}
       </td>
       <td className="num">
-        <div className="util">
+        <div className="meter">
           <Bar pct={gpu.util_gpu} />
           <span>{fmtPct(gpu.util_gpu)}</span>
         </div>
       </td>
-      <td className="num">{fmtMemPair(gpu.mem_used_mb, gpu.mem_total_mb)}</td>
+      <td className="num">
+        <div className="meter mem">
+          <MemBar used={gpu.mem_used_mb} total={gpu.mem_total_mb} />
+          <span>{fmtMemPair(gpu.mem_used_mb, gpu.mem_total_mb)}</span>
+        </div>
+      </td>
       <td className={gpu.health === "temp_warn" ? "num temp warn" : "num temp"}>
         {gpu.temp_c === null ? "—" : `${gpu.temp_c}°C`}
       </td>

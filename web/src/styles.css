@@ -394,12 +394,12 @@ a:hover {
 /* ---------- gpu rows ----------
    행마다 --row 에 소유자 색이 들어온다 (GpuRow.tsx). 왼쪽 테두리와 옅은 배경, 사용률 막대가 같은 색을 쓴다.
    같은 사람의 GPU 는 노드가 달라도 같은 색이고, 빈 GPU 는 초록, 소유자 미확인은 빗금이다.
-   칸: 번호, 막대, 사용률, 메모리, 온도, 작업. 작업 칸은 200px 아래로 줄지 않아 카드가 두 줄로 놓일 때(카드 폭 620px 안팎)는
-   막대가 줄어든다. */
+   칸: 번호, 사용률 막대, 사용률, 메모리 막대, 메모리, 온도, 작업. 두 막대는 같은 행 색이고 메모리 막대는 전체 대비 사용 비율이다.
+   작업 칸은 200px 아래로 줄지 않아 카드가 두 줄로 놓일 때(카드 폭 620px 안팎)는 막대가 줄어든다. */
 .gpu-row {
   --row: var(--series-neutral);
   display: grid;
-  grid-template-columns: 34px minmax(90px, 160px) 44px 92px 44px minmax(200px, 1fr);
+  grid-template-columns: 34px minmax(40px, 140px) 44px minmax(40px, 140px) 92px 44px minmax(200px, 1fr);
   gap: 10px;
   align-items: center;
   margin: 4px 0;
@@ -419,7 +419,7 @@ a:hover {
 }
 @media (max-width: 700px) {
   .gpu-row {
-    grid-template-columns: 30px 1fr 40px 80px;
+    grid-template-columns: 30px 1fr 40px 1fr 80px;
   }
   .gpu-row .temp {
     display: none; /* 좁은 화면은 한 줄에 사용률·메모리까지만. 온도는 노드 상세와 전체 GPU 표에서 본다 */
@@ -659,18 +659,22 @@ h2 {
   color: var(--muted);
   font-size: 12px;
 }
-.gpu-table .util {
+/* 사용률·메모리 칸: 막대 + 숫자. 숫자 폭을 고정해 행마다 막대가 같은 자리에 선다 */
+.gpu-table .meter {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
 }
-.gpu-table .util .bar {
+.gpu-table .meter .bar {
   flex: none;
   width: 64px;
 }
-.gpu-table .util span {
+.gpu-table .meter span {
   min-width: 34px;
+}
+.gpu-table .meter.mem span {
+  min-width: 84px;
 }
 .gpu-table .wl {
   max-width: 360px;

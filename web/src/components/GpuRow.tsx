@@ -5,7 +5,7 @@ import { fmtElapsed, fmtMemPair, fmtPct, sourceLabel, typeLabel } from "../forma
 import type { Gpu, WorkloadOnGpu } from "../types";
 import { UNKNOWN_USER } from "../types";
 import { Badge, Badges } from "./Badges";
-import { Bar } from "./Bar";
+import { Bar, MemBar } from "./Bar";
 import { Swatch } from "./Swatch";
 
 function OwnerLink({ w }: { w: WorkloadOnGpu }) {
@@ -43,7 +43,7 @@ export function WorkloadLine({ w }: { w: WorkloadOnGpu }) {
   );
 }
 
-/** 행 전체를 소유자 색으로 칠한다 (왼쪽 테두리 + 옅은 배경 + 막대). 색 종류는 colors.ts.
+/** 행 전체를 소유자 색으로 칠한다 (왼쪽 테두리 + 옅은 배경 + 사용률·메모리 막대). 색 종류는 colors.ts.
  *  온도는 숫자만 적고 색은 바꾸지 않는다. 경고 온도면 글자만 주황이고 "온도" 뱃지가 같이 붙는다. */
 export function GpuRow({ gpu }: { gpu: Gpu }) {
   const paint = gpuPaint(gpu);
@@ -53,6 +53,7 @@ export function GpuRow({ gpu }: { gpu: Gpu }) {
       <span className="idx">[{gpu.index}]</span>
       <Bar pct={gpu.util_gpu} />
       <span className="num">{fmtPct(gpu.util_gpu)}</span>
+      <MemBar used={gpu.mem_used_mb} total={gpu.mem_total_mb} />
       <span className="mem">{fmtMemPair(gpu.mem_used_mb, gpu.mem_total_mb)}</span>
       <span className={gpu.health === "temp_warn" ? "temp warn" : "temp"} title="GPU 온도">
         {gpu.temp_c === null ? "--" : gpu.temp_c}°C

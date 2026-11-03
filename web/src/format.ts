@@ -29,6 +29,11 @@ export function fmtMemPair(used: number | null, total: number): string {
   return `${u} / ${(total / 1024).toFixed(0)} GB`;
 }
 
+/** 메모리 사용 비율(%). 사용량을 모르거나 전체가 0 이면 null */
+export function memPct(used: number | null, total: number): number | null {
+  return used === null || total <= 0 ? null : Math.round((used / total) * 100);
+}
+
 export function fmtPct(v: number | null | undefined): string {
   return v === null || v === undefined ? "—" : `${v}%`;
 }
