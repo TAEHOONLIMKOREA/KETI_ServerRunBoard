@@ -158,10 +158,7 @@ class Engine:
                 )
             if skew_flag:
                 log.warning("노드 %s 시계 오차 %.0fs: 수신 시각으로 대체", node.display_name, skew)
-            names = (key, report.node.name, node.display_name)
-            self.tracker.apply_report(
-                report, ts, lambda p: self.resolver.classify(p, names), node=key
-            )
+            self.tracker.apply_report(report, ts, self.resolver.classify, node=key)
             self._persist(node, ts, received)
 
     def set_registry(self, registry: Registry) -> None:
@@ -179,7 +176,7 @@ class Engine:
     def rename_node(self, key: str, display_name: str) -> NodeOut | None:
         """화면 이름은 다른 노드의 화면 이름·식별자·호스트명과 겹치면 안 된다.
 
-        계정 매핑의 노드와 runboard-server nodes 의 <노드> 는 셋 중 어느 것으로도 노드를 가리킨다.
+        runboard-server nodes 의 <노드> 는 셋 중 어느 것으로도 노드를 가리킨다.
         """
         with self.lock:
             node = self.state.nodes.get(key)

@@ -1,6 +1,6 @@
 # RunBoard 서버 설정 예시. 복사해서 runboard.yaml 로 쓰고 RUNBOARD_CONFIG 로 가리키거나 --config 로 넘긴다.
 # 이 파일에는 실행 설정·노드 토큰·임계값·소유자 판정 규칙만 둔다.
-# 사용자·별칭, 계정 매핑, 공용 서비스는 PostgreSQL 에 두고 웹 관리 화면(/admin)에서 고친다.
+# 사용자·별칭, 공용 서비스는 PostgreSQL 에 두고 웹 관리 화면(/admin)에서 고친다.
 
 server:
   # DB 접속 정보는 여기 두지 않는다. 레포 루트의 settings.ini 에서 읽는다

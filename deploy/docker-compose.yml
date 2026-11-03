@@ -1,6 +1,6 @@
 # 중앙 서버 배포.  deploy/ 에서:
 #   cp runboard.example.yaml runboard.yaml   # 등록 토큰 수정 (예시의 dev 토큰은 지운다)
-#   사용자·계정 매핑·공용 서비스는 DB 에 둔다. 띄운 뒤 웹 /admin 에서 등록한다
+#   사용자·공용 서비스는 DB 에 둔다. 띄운 뒤 웹 /admin 에서 등록한다
 #   docker compose up -d --build
 #   노드 목록·이름 변경·삭제: docker compose exec server runboard-server nodes list (rename <노드> <이름>, remove <노드>)
 # HTTP 만 쓴다 (HTTPS 없음). 대시보드·API: http://<서버>:55400, 에이전트 --server 도 이 주소.

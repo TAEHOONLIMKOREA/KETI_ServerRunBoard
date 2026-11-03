@@ -24,7 +24,7 @@ def tracker(config, registry, fake_report):
     def apply(now: float, key: str | None = None, **kw):
         """key 는 노드 식별자. 호스트명이 같고 식별자만 다르면 같은 GPU·부팅 ID·PID 를 보고한다."""
         report = fake_report(now=now, **kw)
-        t.apply_report(report, now, lambda p: resolver.classify(p, report.node.name), node=key)
+        t.apply_report(report, now, resolver.classify, node=key)
         return report
 
     t.apply = apply  # type: ignore[attr-defined]
@@ -176,7 +176,7 @@ def test_restore_marks_unknown_and_next_report_reconciles(tracker, config, regis
 
     resolver = OwnerResolver(config.owner, registry)
     report = fake_report(now=BASE + 20)
-    fresh.apply_report(report, BASE + 20, lambda p: resolver.classify(p, "fake01"))
+    fresh.apply_report(report, BASE + 20, resolver.classify)
     assert {s.status for s in fresh.open_sessions()} == {"active"}
     assert {s.id for s in fresh.open_sessions()} == {s.id for s in sessions}, (
         "같은 세션으로 이어진다"
@@ -209,7 +209,7 @@ def test_registry_change_reclassifies_open_workloads(config, registry, fake_repo
 
     def apply(now: float) -> None:
         report = fake_report(now=now)
-        t.apply_report(report, now, lambda p: resolver.classify(p, "fake01"))
+        t.apply_report(report, now, resolver.classify)
 
     apply(BASE + 5)
     stoic = _wl_by_name(t, "stoic_lovelace")
@@ -308,7 +308,7 @@ def test_restore_then_new_identifier_reports_first(tracker, config, registry, fa
     _assert_proc_index(fresh)
     resolver = OwnerResolver(config.owner, registry)
     report = fake_report(now=BASE + 20, churn=False)
-    fresh.apply_report(report, BASE + 20, lambda p: resolver.classify(p, "fake01"), node="id-new")
+    fresh.apply_report(report, BASE + 20, resolver.classify, node="id-new")
     assert {s.ended_reason for s in sessions} == {"node_replaced"}
     assert fresh.open_sessions("fake01") == [] and len(fresh.open_sessions("id-new")) == 7
     assert {w.status for w in workloads} == {"ended"}
@@ -417,7 +417,7 @@ def test_reappeared_process_keeps_new_session_while_old_end_is_buffered(
         report = fake_report(now=now, churn=False)
         if without_gpu is not None:
             report.gpus[without_gpu].processes.clear()
-        t.apply_report(report, now, lambda p: resolver.classify(p, "fake01"))
+        t.apply_report(report, now, resolver.classify)
 
     apply(BASE + 5)
     t.take_dirty()

@@ -17,8 +17,6 @@ from runboard_server.config import AuthSection, ServerConfig, ServerSection
 from runboard_server.db.models import Base
 from runboard_server.db.repo import Repository
 from runboard_server.registry import (
-    AccountMapping,
-    MappingFields,
     Registry,
     ServiceEntry,
     ServiceFields,
@@ -50,7 +48,6 @@ def make_registry() -> Registry:
             UserEntry(username="minsu", display_name="김민수"),
             UserEntry(username="jihye"),
         ],
-        account_mappings=[AccountMapping(id=1, uid=1001, username="taehoon")],
         services=[
             ServiceEntry(id=1, name="ollama", match_exec_account="ollama", owner="taehoon"),
             ServiceEntry(
@@ -121,8 +118,6 @@ def seed():
     def _seed(repo: Repository, registry: Registry) -> None:
         for user in registry.users:
             repo.add_user(user)
-        for mapping in registry.account_mappings:
-            repo.add_mapping(MappingFields(**mapping.model_dump(exclude={"id"})))
         for service in registry.services:
             repo.add_service(ServiceFields(**service.model_dump(exclude={"id"})))
 

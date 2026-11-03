@@ -13,15 +13,14 @@
   2. 컨테이너명 규칙 <user>_<용도>. user 가 등록된 사용자·별칭일 때만.
      중계를 거친 컨테이너(runboard.launcher 라벨)에는 쓰지 않는다
   3. 공용 서비스면 레지스트리의 담당자
-  4. 계정 매핑: (노드, uid) → 사용자. 없으면 (모든 노드, uid). 그것도 없으면
-     실행 계정명이 등록된 사용자·별칭과 같을 때. uid 0(root) 은 명시적 매핑이 있을 때만
+  4. 실행 계정명이 등록된 사용자·별칭과 같을 때 (근거 account_map). uid 0(root) 에는 쓰지 않는다
   5. 없으면 미확인
 """
 
 from __future__ import annotations
 
+import posixpath
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -32,6 +31,14 @@ from runboard_server.registry import Registry, ServiceEntry
 WorkloadType = Literal["personal", "container", "shared_service"]
 OwnerSource = Literal["label", "container_rule", "service", "account_map", "none"]
 MAX_COLOR_SLOTS = 8  # 대시보드 범주색 수. 등록 사용자 순서대로 앞 8명이 고유색을 받는다
+
+
+def exec_name(cmdline: str) -> str | None:
+    """명령어 첫 토큰의 파일명. `/usr/lib/xorg/Xorg vt1 -displayfd 3` → Xorg. 명령어를 못 읽었으면(빈 문자열) None."""
+    tokens = cmdline.split(None, 1)
+    if not tokens:
+        return None
+    return posixpath.basename(tokens[0]) or None
 
 
 @dataclass(frozen=True)
@@ -89,14 +96,6 @@ class OwnerResolver:
             u.username: i for i, u in enumerate(registry.users[:MAX_COLOR_SLOTS])
         }
 
-        self._acct_by_node: dict[tuple[str, int], str] = {}
-        self._acct_any: dict[int, str] = {}
-        for mapping in registry.account_mappings:
-            if mapping.node:
-                self._acct_by_node[(mapping.node, mapping.uid)] = mapping.username
-            else:
-                self._acct_any[mapping.uid] = mapping.username
-
         self._services = [
             _CompiledService(
                 entry=s,
@@ -136,9 +135,14 @@ class OwnerResolver:
     def service(self, name: str) -> ServiceEntry | None:
         return self._service_by_name.get(name)
 
-    def classify(self, proc: ProcessReport, node_name: str | Sequence[str]) -> OwnerDecision:
-        """node_name 은 노드를 가리키는 이름들. 식별자·호스트명·화면 이름 중 어느 것으로 매핑해도 맞는다."""
-        names = (node_name,) if isinstance(node_name, str) else tuple(n for n in node_name if n)
+    def ignored(self, proc: ProcessReport) -> bool:
+        """보고에서 뺄 프로세스인가. 실행 파일명이 owner.ignore_commands 에 있을 때 (대소문자 구분).
+
+        명령어를 못 읽은 프로세스(빈 cmdline)는 무엇인지 모르므로 빼지 않는다.
+        """
+        return bool(self._ignore) and exec_name(proc.cmdline) in self._ignore
+
+    def classify(self, proc: ProcessReport) -> OwnerDecision:
         labels = proc.container.labels if proc.container else {}
         project = labels.get(self._label_project) or None
         job = labels.get(self._label_job) or None
@@ -152,7 +156,7 @@ class OwnerResolver:
             workload_type = "personal"
         service_name = matched.entry.name if matched else None
 
-        owner, source = self._resolve_owner(proc, names, labels, matched)
+        owner, source = self._resolve_owner(proc, labels, matched)
         return OwnerDecision(
             workload_type=workload_type,
             owner=owner,
@@ -165,7 +169,6 @@ class OwnerResolver:
     def _resolve_owner(
         self,
         proc: ProcessReport,
-        names: tuple[str, ...],
         labels: dict[str, str],
         service: _CompiledService | None,
     ) -> tuple[str | None, OwnerSource]:
@@ -191,11 +194,6 @@ class OwnerResolver:
         if service is not None and service.entry.owner:
             return self.canonical(service.entry.owner) or service.entry.owner, "service"
 
-        if proc.exec_uid is not None:
-            by_node = (self._acct_by_node.get((n, proc.exec_uid)) for n in names)
-            mapped = next((m for m in by_node if m), None) or self._acct_any.get(proc.exec_uid)
-            if mapped:
-                return self.canonical(mapped) or mapped, "account_map"
         if proc.exec_uid != 0:
             user = self.canonical(proc.exec_username)
             if user:

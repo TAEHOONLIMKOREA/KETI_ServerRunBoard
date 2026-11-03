@@ -17,7 +17,6 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    UniqueConstraint,
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -205,25 +204,6 @@ class UserRow(Base):
     slack_id: Mapped[str | None] = mapped_column(String(64))
     aliases: Mapped[list[str]] = mapped_column(JSON, default=list)
     position: Mapped[int] = mapped_column(Integer, default=0)
-
-
-class AccountMappingRow(Base):
-    """(노드, uid) → 사용자. node 가 NULL 이면 모든 노드다. 사용자를 지우면 같이 지워진다."""
-
-    __tablename__ = "account_mappings"
-    __table_args__ = (
-        # NULL(모든 노드)끼리도 같은 값으로 본다 (PostgreSQL 15+)
-        UniqueConstraint(
-            "node", "uid", name="uq_account_mapping", postgresql_nulls_not_distinct=True
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    node: Mapped[str | None] = mapped_column(String(64))
-    uid: Mapped[int] = mapped_column(Integer)
-    username: Mapped[str] = mapped_column(
-        ForeignKey("users.username", ondelete="CASCADE"), index=True
-    )
 
 
 class ServiceRow(Base):

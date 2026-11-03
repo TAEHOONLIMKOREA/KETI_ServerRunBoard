@@ -1,7 +1,7 @@
 """서버 설정 (runboard.yaml) 과 DB 접속 정보 (settings.ini).
 
-runboard.yaml 에는 실행 설정, 노드 토큰, 임계값, 소유자 판정 규칙만 둔다. 사용자·계정 매핑·공용
-서비스는 DB 에 두고 웹 관리 화면에서 고친다 (registry.py).
+runboard.yaml 에는 실행 설정, 노드 토큰, 임계값, 소유자 판정 규칙만 둔다. 사용자·공용 서비스는
+DB 에 두고 웹 관리 화면에서 고친다 (registry.py).
 DB 접속 정보는 git 에 올리지 않는 settings.ini 에 따로 둔다. 코드에는 접속 정보가 없다. DB 는 PostgreSQL 만 쓴다.
 """
 
@@ -21,7 +21,7 @@ from sqlalchemy.exc import ArgumentError
 SETTINGS_FILE = "settings.ini"  # 실행 디렉터리 기준. RUNBOARD_SETTINGS 로 바꾼다
 _DB_SECTION = "postgres_db"
 _DB_KEYS = ("host", "port", "dbname", "user", "password")
-_MOVED_TO_DB = ("users", "account_mappings", "services")  # 예전 YAML 섹션. 지금은 DB 의 등록 정보
+_MOVED_TO_DB = ("users", "services")  # 예전 YAML 섹션. 지금은 DB 의 등록 정보
 _RETENTION_ENV = {
     "raw_days": "RUNBOARD_RETENTION_RAW_DAYS",
     "agg_days": "RUNBOARD_RETENTION_AGG_DAYS",

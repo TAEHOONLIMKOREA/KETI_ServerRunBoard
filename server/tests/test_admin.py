@@ -1,4 +1,4 @@
-"""관리 API: 사용자·계정 매핑·공용 서비스를 DB 에 쓰고 판정에 바로 쓴다. 노드 목록·이름 변경·삭제."""
+"""관리 API: 사용자·공용 서비스를 DB 에 쓰고 판정에 바로 쓴다. 노드 목록·이름 변경·삭제."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -123,15 +123,11 @@ def test_values_the_db_refuses_are_422_not_500(client):
     assert client.get("/api/v1/admin/users").json() == users, "아무것도 바뀌지 않는다"
     assert len(client.get("/api/v1/admin/services").json()) == 2
 
-    bodies = {
-        "services": ({"name": "x", "match_exec_account": "a"}, "service_id"),
-        "account-mappings": ({"uid": 7, "username": "minsu"}, "mapping_id"),
-    }
-    for kind, row_id in (("services", 0), ("services", 2**31), ("account-mappings", 10**20)):
-        body, name = bodies[kind]
-        path = f"/api/v1/admin/{kind}/{row_id}"
+    body = {"name": "x", "match_exec_account": "a"}
+    for row_id in (0, 2**31, 10**20):
+        path = f"/api/v1/admin/services/{row_id}"
         for r in (client.put(path, json=body), client.delete(path)):
-            assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["path", name]
+            assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["path", "service_id"]
     assert client.delete("/api/v1/admin/services/2147483647").status_code == 404, "범위 안이면 없다"
 
 
@@ -139,53 +135,28 @@ def test_registry_changes_apply_to_running_workloads_and_persist(client, config,
     report(BASE + 5)
     assert gpu(client, 6)["workloads"][0]["owner"] is None, "컨테이너 안 root, 라벨 없음"
 
-    r = client.post(
-        "/api/v1/admin/account-mappings", json={"node": "fake01", "uid": 0, "username": "minsu"}
+    r = client.put(
+        "/api/v1/admin/users/minsu", json={"display_name": "김민수", "aliases": ["stoic"]}
     )
-    assert r.status_code == 201 and r.json()["id"] == 2
+    assert r.status_code == 200
     report(BASE + 6)
     wl = gpu(client, 6)["workloads"][0]
     assert (wl["owner"], wl["owner_source"], wl["owner_display"]) == (
         "minsu",
-        "account_map",
+        "container_rule",
         "김민수",
-    ), "돌고 있던 작업도 다음 보고에서 다시 판정한다"
+    ), "컨테이너 stoic_lovelace 가 별칭으로 맞는다. 돌고 있던 작업도 다음 보고에서 다시 판정한다"
 
     with TestClient(create_app(config, Repository(repo.db_url), start_scheduler=False)) as fresh:
-        mappings = fresh.get("/api/v1/admin/account-mappings").json()
-        assert [(m["node"], m["uid"], m["username"]) for m in mappings] == [
-            (None, 1001, "taehoon"),
-            ("fake01", 0, "minsu"),
-        ], "재시작해도 DB 에서 읽는다"
+        users = fresh.get("/api/v1/admin/users").json()
+        assert next(u for u in users if u["username"] == "minsu")["aliases"] == ["stoic"], (
+            "재시작해도 DB 에서 읽는다"
+        )
 
     assert client.delete("/api/v1/admin/users/minsu").status_code == 204
-    assert [m["username"] for m in client.get("/api/v1/admin/account-mappings").json()] == [
-        "taehoon"
-    ], "사용자를 지우면 그 사용자의 매핑도 지워진다"
     report(BASE + 7)
     assert gpu(client, 6)["workloads"][0]["owner"] is None
     assert gpu(client, 2)["workloads"][0]["owner"] is None, "minsu 계정의 jupyter 도 미확인"
-
-
-def test_mapping_crud_and_validation(client):
-    base = "/api/v1/admin/account-mappings"
-    r = client.post(base, json={"uid": 1001, "username": "minsu"})
-    assert r.status_code == 409, "모든 노드·uid 1001 매핑이 이미 있다"
-    assert client.post(base, json={"uid": 5, "username": "ghost"}).status_code == 422
-    assert client.post(base, json={"uid": -1, "username": "minsu"}).status_code == 422
-
-    r = client.post(base, json={"node": " gpu02 ", "uid": 1001, "username": "minsu"})
-    assert r.status_code == 201 and r.json()["node"] == "gpu02", "노드별 매핑은 따로 둔다"
-    mapping_id = r.json()["id"]
-    r = client.put(f"{base}/{mapping_id}", json={"node": "", "uid": 1001, "username": "minsu"})
-    assert r.status_code == 409, "빈 노드는 모든 노드라 기존 매핑과 겹친다"
-    r = client.put(f"{base}/{mapping_id}", json={"node": "gpu02", "uid": 1003, "username": "jihye"})
-    assert r.status_code == 200 and (r.json()["uid"], r.json()["username"]) == (1003, "jihye")
-    assert client.put(f"{base}/999", json={"uid": 7, "username": "minsu"}).status_code == 404
-
-    assert client.delete(f"{base}/{mapping_id}").status_code == 204
-    assert client.delete(f"{base}/{mapping_id}").status_code == 404
-    assert [m["uid"] for m in client.get(base).json()] == [1001]
 
 
 def test_service_crud_changes_workload_type(client, report):
@@ -240,7 +211,7 @@ def test_node_rename_and_delete(client, repo, report):
     assert (r.status_code, r.json()["detail"]) == (
         409,
         "다른 노드(fake02)가 이미 쓰는 이름이다: fake02",
-    ), "다른 노드의 식별자·호스트명도 안 된다. 계정 매핑과 nodes 명령이 어느 노드인지 모른다"
+    ), "다른 노드의 식별자·호스트명도 안 된다. nodes 명령이 어느 노드인지 모른다"
     r = client.patch(f"{base}/fake01", json={"display_name": "fake01"})
     assert r.status_code == 200 and r.json()["display_name"] == "fake01", "자기 호스트명은 된다"
     assert client.patch(f"{base}/fake01", json={"display_name": "  "}).status_code == 422

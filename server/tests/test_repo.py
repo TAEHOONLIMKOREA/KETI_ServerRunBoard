@@ -1,9 +1,12 @@
 """영속화: 엔진 → PostgreSQL 저장 → 새 엔진에서 복원. 등록 정보 저장과 외래 키 동작."""
 
+from sqlalchemy import inspect, text
+
 from runboard_agent.collector.fake import CHURN_ALIVE_S, CHURN_PERIOD_S
 from runboard_server.core.engine import Engine
 from runboard_server.db.models import GpuRow, GpuSampleRow, NodeRow, SessionRow, WorkloadRow
-from runboard_server.registry import MappingFields, UserFields
+from runboard_server.db.repo import Repository
+from runboard_server.registry import UserFields
 
 T0 = 1_760_600_000.0
 BASE = float((int(T0) // CHURN_PERIOD_S) * CHURN_PERIOD_S)
@@ -179,16 +182,27 @@ def test_registry_round_trip_and_foreign_keys(registry, repo, seed):
 
     assert repo.delete_user("taehoon")
     loaded = repo.load_registry()
-    assert loaded.account_mappings == [], "사용자를 지우면 계정 매핑도 지워진다"
     assert loaded.services[0].name == "ollama" and loaded.services[0].owner is None, (
         "담당 서비스는 담당자만 비운다"
     )
     assert not repo.delete_user("taehoon")
 
-    first = repo.add_mapping(MappingFields(uid=0, username="minsu"))
-    second = repo.add_mapping(MappingFields(node="fake01", uid=0, username="jihye"))
-    assert second == first + 1
-    assert [(m.node, m.uid, m.username) for m in repo.load_registry().account_mappings] == [
-        (None, 0, "minsu"),
-        ("fake01", 0, "jihye"),
-    ]
+
+def test_migrate_drops_account_mappings_table(pg_url, repo, registry, seed):
+    """계정 매핑 기능을 없앴다. 예전 DB 에 남은 표는 시작할 때 지운다. 사용자는 그대로다."""
+    seed(repo, registry)
+    with repo.engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE account_mappings (id SERIAL PRIMARY KEY, node VARCHAR(64), "
+                "uid INTEGER NOT NULL, username VARCHAR(64) NOT NULL "
+                "REFERENCES users (username) ON DELETE CASCADE)"
+            )
+        )
+        conn.execute(text("INSERT INTO account_mappings (uid, username) VALUES (1001, 'taehoon')"))
+    fresh = Repository(pg_url)
+    try:
+        assert not inspect(fresh.engine).has_table("account_mappings")
+        assert fresh.load_registry() == registry
+    finally:
+        fresh.close()

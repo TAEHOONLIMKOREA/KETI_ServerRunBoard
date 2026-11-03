@@ -68,7 +68,7 @@ def test_only_postgres_is_accepted(tmp_path: Path, monkeypatch):
 
 
 def test_registry_sections_in_yaml_are_rejected(tmp_path: Path):
-    """사용자·매핑·서비스는 DB 로 옮겼다. 예전 YAML 을 그대로 쓰면 조용히 무시하지 않고 알린다."""
+    """사용자·서비스는 DB 로 옮겼다. 예전 YAML 을 그대로 쓰면 조용히 무시하지 않고 알린다."""
     yaml_file = tmp_path / "runboard.yaml"
     yaml_file.write_text("users:\n  - username: a\nservices: []\n", encoding="utf-8")
     env = {"RUNBOARD_SETTINGS": str(_write(tmp_path))}

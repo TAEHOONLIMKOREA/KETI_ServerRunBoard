@@ -24,7 +24,6 @@ from runboard_server.core.history import BUCKET_S, Point, Sample, aggregate, buc
 from runboard_server.core.sessions import Session, Workload
 from runboard_server.core.state import GpuState, NodeState, free_name
 from runboard_server.db.models import (
-    AccountMappingRow,
     Base,
     GpuRow,
     GpuSample5mRow,
@@ -39,8 +38,6 @@ from runboard_server.db.models import (
 from runboard_server.errors import Conflict, Invalid
 from runboard_server.notices import NoticeEntry, NoticeFields
 from runboard_server.registry import (
-    AccountMapping,
-    MappingFields,
     Registry,
     ServiceEntry,
     ServiceFields,
@@ -121,7 +118,8 @@ class Repository:
     def _migrate(self) -> None:
         """create_all 은 기존 표를 바꾸지 않는다. Alembic 은 쓰지 않고 필요한 변경을 여기서 한다.
 
-        빠진 열(_ADDED_COLUMNS)을 더하고, 옛 세션 키 유일 제약(uq_session_key)을 지우고, 없는 인덱스를 만든다.
+        빠진 열(_ADDED_COLUMNS)을 더하고, 옛 세션 키 유일 제약(uq_session_key)과 없앤 계정 매핑 표
+        (account_mappings)를 지우고, 없는 인덱스를 만든다.
         """
         insp = inspect(self.engine)
         missing: list[tuple[str, str, str]] = []
@@ -131,11 +129,14 @@ class Repository:
         old_key = any(
             c["name"] == "uq_session_key" for c in insp.get_unique_constraints("gpu_sessions")
         )
+        old_mappings = insp.has_table("account_mappings")
         with self.engine.begin() as conn:
             for table, col, ddl in missing:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
             if old_key:  # 끝난 세션까지 막던 유일 제약 → 열린 세션만 막는 부분 인덱스
                 conn.execute(text("ALTER TABLE gpu_sessions DROP CONSTRAINT uq_session_key"))
+            if old_mappings:
+                conn.execute(text("DROP TABLE account_mappings"))
         for table in Base.metadata.sorted_tables:
             for index in table.indexes:
                 index.create(self.engine, checkfirst=True)
@@ -143,6 +144,8 @@ class Repository:
             log.info("표에 열 추가: %s", ", ".join(f"{t}.{col}" for t, col, _ in missing))
         if old_key:
             log.info("gpu_sessions 세션 키 유일 제약을 열린 세션에만 건다")
+        if old_mappings:
+            log.info("계정 매핑 표(account_mappings)를 지운다. 계정 매핑 기능은 없어졌다")
 
     # ------------------------------------------------------------------ 노드·GPU·샘플
 
@@ -335,11 +338,9 @@ class Repository:
     def load_registry(self) -> Registry:
         with self._sessions() as db:
             users = db.scalars(select(UserRow).order_by(UserRow.position, UserRow.username)).all()
-            mappings = db.scalars(select(AccountMappingRow).order_by(AccountMappingRow.id)).all()
             services = db.scalars(select(ServiceRow).order_by(ServiceRow.id)).all()
             return Registry(
                 users=_entries(UserEntry, users),
-                account_mappings=_entries(AccountMapping, mappings),
                 services=_entries(ServiceEntry, services),
             )
 
@@ -388,7 +389,7 @@ class Repository:
         return self._update(UserRow, username, fields.model_dump(exclude={"username"}))
 
     def delete_user(self, username: str) -> bool:
-        """이 사용자의 계정 매핑도 지워지고, 담당 서비스는 담당자가 비워진다 (외래 키)."""
+        """담당 서비스는 담당자가 비워진다 (외래 키)."""
         return self._delete(UserRow, username)
 
     def reorder_users(self, usernames: list[str]) -> bool:
@@ -400,19 +401,6 @@ class Repository:
             for position, username in enumerate(usernames):
                 rows[username].position = position
             return True
-
-    def add_mapping(self, mapping: MappingFields) -> int:
-        with self._writing() as db:
-            row = AccountMappingRow(**mapping.model_dump(exclude={"id"}))
-            db.add(row)
-            db.flush()
-            return row.id
-
-    def update_mapping(self, mapping_id: int, mapping: MappingFields) -> bool:
-        return self._update(AccountMappingRow, mapping_id, mapping.model_dump(exclude={"id"}))
-
-    def delete_mapping(self, mapping_id: int) -> bool:
-        return self._delete(AccountMappingRow, mapping_id)
 
     def add_service(self, service: ServiceFields) -> int:
         with self._writing() as db:

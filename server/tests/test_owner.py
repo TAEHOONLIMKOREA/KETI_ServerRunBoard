@@ -24,31 +24,31 @@ def resolver(config, registry) -> OwnerResolver:
 
 
 def test_label_wins_and_resolves_alias(resolver):
-    d = resolver.classify(proc(container=container("x", {"runboard.owner": "th"})), "gpu01")
+    d = resolver.classify(proc(container=container("x", {"runboard.owner": "th"})))
     assert (d.workload_type, d.owner, d.source) == ("container", "taehoon", "label")
 
 
 def test_label_with_unregistered_name_is_kept_as_declared(resolver):
-    d = resolver.classify(proc(container=container("x", {"runboard.owner": "someone"})), "gpu01")
+    d = resolver.classify(proc(container=container("x", {"runboard.owner": "someone"})))
     assert (d.owner, d.source) == ("someone", "label")
 
 
 def test_project_and_job_labels(resolver):
     labels = {"runboard.owner": "taehoon", "runboard.project": "pbf", "runboard.job": "seg"}
-    d = resolver.classify(proc(container=container("x", labels)), "gpu01")
+    d = resolver.classify(proc(container=container("x", labels)))
     assert (d.project, d.job) == ("pbf", "seg")
 
 
 def test_container_name_rule_only_for_registered_users(resolver):
-    d = resolver.classify(proc(container=container("minsu_dev")), "gpu01")
+    d = resolver.classify(proc(container=container("minsu_dev")))
     assert (d.owner, d.source) == ("minsu", "container_rule")
-    d = resolver.classify(proc(container=container("stoic_lovelace")), "gpu01")
+    d = resolver.classify(proc(container=container("stoic_lovelace")))
     assert (d.workload_type, d.owner, d.source) == ("container", None, "none")
 
 
 def test_shared_service_by_exec_account_with_service_owner(resolver):
     d = resolver.classify(
-        proc(exec_username="ollama", exec_uid=998, cmdline="/usr/local/bin/ollama serve"), "gpu01"
+        proc(exec_username="ollama", exec_uid=998, cmdline="/usr/local/bin/ollama serve")
     )
     assert d.workload_type == "shared_service"
     assert d.service_name == "ollama"
@@ -56,9 +56,7 @@ def test_shared_service_by_exec_account_with_service_owner(resolver):
 
 
 def test_shared_service_by_image_without_owner_is_unknown(resolver):
-    d = resolver.classify(
-        proc(container=container("stoic_x", image="vllm/vllm-openai:latest")), "gpu01"
-    )
+    d = resolver.classify(proc(container=container("stoic_x", image="vllm/vllm-openai:latest")))
     assert (d.workload_type, d.service_name, d.owner, d.source) == (
         "shared_service",
         "vllm",
@@ -68,38 +66,25 @@ def test_shared_service_by_image_without_owner_is_unknown(resolver):
 
 
 def test_container_rule_beats_service_owner(resolver):
-    d = resolver.classify(
-        proc(container=container("taehoon_vllm", image="vllm/vllm-openai")), "gpu01"
-    )
+    d = resolver.classify(proc(container=container("taehoon_vllm", image="vllm/vllm-openai")))
     assert d.workload_type == "shared_service"
     assert (d.owner, d.source) == ("taehoon", "container_rule")
 
 
-def test_account_map_by_uid_then_by_username(resolver):
-    d = resolver.classify(proc(exec_username="th", exec_uid=1001), "gpu01")
-    assert (d.workload_type, d.owner, d.source) == ("personal", "taehoon", "account_map")
-    d = resolver.classify(proc(exec_username="minsu", exec_uid=1002), "gpu01")
-    assert (d.owner, d.source) == ("minsu", "account_map")
-    d = resolver.classify(proc(exec_username="th", exec_uid=5555), "gpu01")
-    assert (d.owner, d.source) == ("taehoon", "account_map"), "별칭도 계정명 매핑에 쓴다"
+def test_exec_account_name_or_alias(resolver):
+    d = resolver.classify(proc(exec_username="minsu", exec_uid=1002))
+    assert (d.workload_type, d.owner, d.source) == ("personal", "minsu", "account_map")
+    d = resolver.classify(proc(exec_username="TH", exec_uid=5555))
+    assert (d.owner, d.source) == ("taehoon", "account_map"), "별칭도 쓰고 대소문자는 무시한다"
 
 
-def test_node_specific_mapping_wins(config, registry):
-    from runboard_server.registry import AccountMapping
-
-    registry.account_mappings.append(AccountMapping(node="gpu02", uid=1001, username="minsu"))
-    resolver = OwnerResolver(config.owner, registry)
-    assert resolver.classify(proc(exec_username="x", exec_uid=1001), "gpu02").owner == "minsu"
-    assert resolver.classify(proc(exec_username="x", exec_uid=1001), "gpu01").owner == "taehoon"
-
-
-def test_root_without_mapping_is_unknown(resolver):
-    d = resolver.classify(proc(exec_username="root", exec_uid=0), "gpu01")
+def test_root_is_unknown(resolver):
+    d = resolver.classify(proc(exec_username="root", exec_uid=0))
     assert (d.workload_type, d.owner, d.source) == ("personal", None, "none")
 
 
 def test_unregistered_host_user_is_unknown(resolver):
-    d = resolver.classify(proc(exec_username="guest", exec_uid=4242), "gpu01")
+    d = resolver.classify(proc(exec_username="guest", exec_uid=4242))
     assert (d.owner, d.source) == (None, "none")
 
 
@@ -117,8 +102,8 @@ def test_color_slot_follows_users_order(resolver):
 def test_container_from_docker_proxy_is_not_guessed_by_name(resolver):
     """에이전트 docker-proxy 가 실행 계정을 붙인 컨테이너는 이름 규칙을 쓰지 않는다."""
     stamped = {"runboard.launcher": "th", "runboard.owner": "th"}
-    d = resolver.classify(proc(container=container("minsu_dev", stamped)), "gpu01")
+    d = resolver.classify(proc(container=container("minsu_dev", stamped)))
     assert (d.owner, d.source) == ("taehoon", "label"), "이름(minsu)이 아니라 실행 계정"
     by_root = {"runboard.launcher": "root"}
-    d = resolver.classify(proc(container=container("minsu_dev", by_root)), "gpu01")
+    d = resolver.classify(proc(container=container("minsu_dev", by_root)))
     assert (d.owner, d.source) == (None, "none"), "root 가 띄운 컨테이너는 이름으로 짐작하지 않는다"

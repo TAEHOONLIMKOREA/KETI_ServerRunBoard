@@ -1,4 +1,4 @@
-"""등록 정보: 사용자·별칭, 계정 매핑, 공용 서비스 (DB 표 users·account_mappings·services).
+"""등록 정보: 사용자·별칭, 공용 서비스 (DB 표 users·services).
 
 PostgreSQL 에 두고 웹 관리 화면(/admin)과 관리 API 로 고친다. 서버는 시작할 때와 고칠 때마다 DB 에서
 다시 읽어 소유자 판정(core/owner.py)에 넣는다. 관리 API 의 입력 검증도 이 모델들이 한다.
@@ -14,7 +14,6 @@ from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_v
 
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _NAME_RULE = "영문·숫자로 시작하고 영문·숫자·. _ - 만 쓴다 (64자 이하)"
-MAX_UID = 2_147_483_647  # DB 정수 열의 최댓값
 
 
 def _blank_to_none(value: object) -> object:
@@ -69,34 +68,13 @@ class UserFields(BaseModel):
 
 class UserEntry(UserFields):
     username: str = Field(
-        description="대표 이름. 실행 계정명이 이것이나 별칭과 같으면 매핑 없이 인식된다"
+        description="대표 이름. 실행 계정명이 이것이나 별칭과 같으면 이 사용자로 인식된다"
     )
 
     @field_validator("username")
     @classmethod
     def _username(cls, value: str) -> str:
         return _check_name(value, "사용자 이름")
-
-
-class MappingFields(BaseModel):
-    node: Text = Field(
-        default=None,
-        max_length=64,
-        description="노드 식별자·호스트명·화면 이름 중 하나. 비우면 모든 노드",
-    )
-    uid: int
-    username: str = Field(description="등록된 사용자")
-
-    @field_validator("uid")
-    @classmethod
-    def _uid(cls, value: int) -> int:
-        if not 0 <= value <= MAX_UID:
-            raise ValueError(f"uid 는 0 이상 {MAX_UID} 이하다")
-        return value
-
-
-class AccountMapping(MappingFields):
-    id: int = Field(default=0, description="DB 행 번호")
 
 
 class ServiceFields(BaseModel):
@@ -148,7 +126,6 @@ class Registry(BaseModel):
     users: list[UserEntry] = Field(
         default_factory=list, description="이 순서대로 앞 8명이 대시보드 고유색을 받는다"
     )
-    account_mappings: list[AccountMapping] = Field(default_factory=list)
     services: list[ServiceEntry] = Field(default_factory=list)
 
     def user(self, username: str) -> UserEntry | None:

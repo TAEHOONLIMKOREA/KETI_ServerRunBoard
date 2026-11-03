@@ -1,6 +1,6 @@
 """관리 API (/api/v1/admin). 웹 관리 화면(/admin)과 runboard-server nodes 명령(cli.py)이 쓴다.
 
-사용자·계정 매핑·공용 서비스는 DB 에 쓰고 다시 읽어 엔진에 넣는다. DB 가 원본이고 엔진은 그 사본으로 판정한다.
+사용자·공용 서비스는 DB 에 쓰고 다시 읽어 엔진에 넣는다. DB 가 원본이고 엔진은 그 사본으로 판정한다.
 공지도 DB 에 쓰고 다시 읽지만 판정과 무관하므로 등록 정보와 따로 넣는다 (작업을 다시 판정하지 않는다).
 노드는 이미 DB 에 있으므로 목록, 화면 이름 변경과 삭제만 한다.
 로그인이 없다. 대시보드처럼 주소를 아는 누구나 고칠 수 있다 (README '운영 배포').
@@ -16,9 +16,6 @@ from pydantic import BaseModel, Field, field_validator
 from runboard_server.errors import Conflict
 from runboard_server.notices import NoticeEntry, NoticeFields
 from runboard_server.registry import (
-    MAX_UID,
-    AccountMapping,
-    MappingFields,
     Registry,
     ServiceEntry,
     ServiceFields,
@@ -30,8 +27,8 @@ from runboard_server.views import NodeBrief, NodeOut
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
-# 경로의 행 번호. MAX_UID 는 DB 정수 열의 최댓값이다. 그 밖의 값은 PostgreSQL 이 비교도 못 해 500 이 된다
-RowId = Annotated[int, Path(ge=1, le=MAX_UID, description="DB 행 번호")]
+# 경로의 행 번호. 상한은 DB 정수 열의 최댓값이다. 그 밖의 값은 PostgreSQL 이 비교도 못 해 500 이 된다
+RowId = Annotated[int, Path(ge=1, le=2_147_483_647, description="DB 행 번호")]
 
 
 class UserOrder(BaseModel):
@@ -70,7 +67,7 @@ def _reload(request: Request) -> Registry:
 
 
 def _not_found(subject: str, key: object) -> HTTPException:
-    """subject 는 조사까지: '사용자가', '계정 매핑이'."""
+    """subject 는 조사까지: '사용자가', '서비스가'."""
     return HTTPException(status_code=404, detail=f"{subject} 없다: {key}")
 
 
@@ -119,7 +116,7 @@ def update_user(username: str, fields: UserFields, request: Request) -> UserEntr
 
 @router.delete("/users/{username}", status_code=204, response_class=Response)
 def delete_user(username: str, request: Request) -> Response:
-    """계정 매핑도 같이 지워지고 담당 서비스는 담당자가 비워진다. 작업 이력의 소유자 이름은 남는다."""
+    """담당 서비스는 담당자가 비워진다. 작업 이력의 소유자 이름은 남는다."""
     if not _repo(request).delete_user(username):
         raise _not_found("사용자가", username)
     _reload(request)
@@ -131,51 +128,6 @@ def reorder_users(order: UserOrder, request: Request) -> list[UserEntry]:
     if not _repo(request).reorder_users(order.usernames):
         raise Conflict("사용자 목록이 지금과 다르다. 새로 읽고 다시 한다")
     return _reload(request).users
-
-
-# ---------------------------------------------------------------------- 계정 매핑
-
-
-def _check_mapping(registry: Registry, mapping: MappingFields, mapping_id: int | None) -> None:
-    _require_user(registry, mapping.username)
-    for other in registry.account_mappings:
-        if other.id != mapping_id and (other.node, other.uid) == (mapping.node, mapping.uid):
-            where = mapping.node or "모든 노드"
-            raise Conflict(
-                f"같은 노드·uid 매핑이 이미 있다: {where}, uid {mapping.uid} → {other.username}"
-            )
-
-
-@router.get("/account-mappings", response_model=list[AccountMapping])
-def list_mappings(request: Request) -> list[AccountMapping]:
-    return _registry(request).account_mappings
-
-
-@router.post("/account-mappings", response_model=AccountMapping, status_code=201)
-def create_mapping(mapping: MappingFields, request: Request) -> AccountMapping:
-    repo = _repo(request)
-    _check_mapping(_registry(request), mapping, None)
-    mapping_id = repo.add_mapping(mapping)
-    _reload(request)
-    return AccountMapping(id=mapping_id, **mapping.model_dump())
-
-
-@router.put("/account-mappings/{mapping_id}", response_model=AccountMapping)
-def update_mapping(mapping_id: RowId, mapping: MappingFields, request: Request) -> AccountMapping:
-    repo = _repo(request)
-    _check_mapping(_registry(request), mapping, mapping_id)
-    if not repo.update_mapping(mapping_id, mapping):
-        raise _not_found("계정 매핑이", mapping_id)
-    _reload(request)
-    return AccountMapping(id=mapping_id, **mapping.model_dump())
-
-
-@router.delete("/account-mappings/{mapping_id}", status_code=204, response_class=Response)
-def delete_mapping(mapping_id: RowId, request: Request) -> Response:
-    if not _repo(request).delete_mapping(mapping_id):
-        raise _not_found("계정 매핑이", mapping_id)
-    _reload(request)
-    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------- 공용 서비스
