@@ -93,6 +93,10 @@ class OwnerRules(BaseModel):
     label_owner: str = "runboard.owner"
     label_project: str = "runboard.project"
     label_job: str = "runboard.job"
+    ignore_commands: list[str] = Field(
+        default_factory=lambda: ["Xorg"],
+        description="보고에서 빼는 프로세스의 실행 파일명 (명령어 첫 토큰의 파일명). 데스크톱 화면 서버처럼 GPU 를 조금 쓰지만 작업이 아닌 것",
+    )
 
 
 class ServerConfig(BaseModel):

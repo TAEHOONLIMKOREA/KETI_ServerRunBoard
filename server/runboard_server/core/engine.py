@@ -140,6 +140,7 @@ class Engine:
 
     def ingest(self, report: NodeReport, received_ts: float | None = None) -> None:
         with self.lock:
+            self._drop_ignored(report)
             received = self.clock() if received_ts is None else received_ts
             skew = received - report.node.measured_ts
             skew_flag = abs(skew) > self.th.clock_skew_max_s
@@ -160,6 +161,16 @@ class Engine:
                 log.warning("노드 %s 시계 오차 %.0fs: 수신 시각으로 대체", node.display_name, skew)
             self.tracker.apply_report(report, ts, self.resolver.classify, node=key)
             self._persist(node, ts, received)
+
+    def _drop_ignored(self, report: NodeReport) -> None:
+        """owner.ignore_commands 의 프로세스(기본 Xorg)를 보고에서 뺀다. 세션을 만들지 않고 GPU 점유에도 세지 않는다.
+
+        그것만 있던 GPU 는 비어 있는 GPU 다. 전에 열린 세션이 있었다면(설정을 바꾸고 다시 시작한 뒤) 보고에서
+        사라진 프로세스와 같이 끝난다. 에이전트가 보내는 것은 그대로라 에이전트의 보고 주기에는 영향이 없다.
+        """
+        for gpu in report.gpus:
+            if gpu.processes:
+                gpu.processes = [p for p in gpu.processes if not self.resolver.ignored(p)]
 
     def set_registry(self, registry: Registry) -> None:
         """관리 API 가 DB 에 쓴 뒤 다시 읽어 넘긴다. 열린 작업은 다음 보고 때 유형·소유자를 다시 판정한다."""

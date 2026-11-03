@@ -1,6 +1,7 @@
 import pytest
 
 from runboard_common.schemas import ContainerInfo, ProcessReport
+from runboard_server.config import OwnerRules
 from runboard_server.core.owner import OwnerResolver
 
 CID = "ab12cd34ef56" + "0" * 52
@@ -107,3 +108,24 @@ def test_container_from_docker_proxy_is_not_guessed_by_name(resolver):
     by_root = {"runboard.launcher": "root"}
     d = resolver.classify(proc(container=container("minsu_dev", by_root)))
     assert (d.owner, d.source) == (None, "none"), "root 가 띄운 컨테이너는 이름으로 짐작하지 않는다"
+
+
+def test_ignore_commands_match_the_executable_name(registry, resolver):
+    """실행 파일명(명령어 첫 토큰의 파일명)만 본다. 기본 목록은 Xorg 하나다."""
+    xorg = proc(
+        exec_username="gdm",
+        exec_uid=128,
+        cmdline="/usr/lib/xorg/Xorg vt1 -displayfd 3 -auth /run/user/128/gdm/Xauthority -nolisten tcp",
+    )
+    assert resolver.ignored(xorg)
+    assert not resolver.ignored(proc(cmdline="python Xorg.py")), "인자에 있는 이름은 보지 않는다"
+    assert not resolver.ignored(proc(cmdline="/usr/bin/xorg")), "대소문자를 구분한다"
+    assert not resolver.ignored(proc(cmdline="")), (
+        "명령어를 못 읽은 프로세스는 무엇인지 모르니 둔다"
+    )
+
+    other = OwnerResolver(OwnerRules(ignore_commands=["gnome-shell", ""]), registry)
+    assert not other.ignored(xorg)
+    assert other.ignored(proc(cmdline="/usr/bin/gnome-shell --wayland"))
+    none = OwnerResolver(OwnerRules(ignore_commands=[]), registry)
+    assert not none.ignored(xorg), "빈 목록이면 모두 센다"

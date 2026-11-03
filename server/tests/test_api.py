@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from runboard_agent.collector.fake import CHURN_ALIVE_S, CHURN_PERIOD_S
+from runboard_common.schemas import GpuReport, NodeInfo, NodeReport, ProcessReport
 from runboard_server.api.auth import verify_node_token
 from runboard_server.core.engine import UNKNOWN_USER
 from runboard_server.main import create_app
@@ -272,3 +273,47 @@ def test_admin_reads_registry_but_needs_db_to_write(client):
     assert [u["username"] for u in users] == ["taehoon", "minsu", "jihye"]
     r = client.post("/api/v1/admin/users", json={"username": "newbie"})
     assert r.status_code == 503
+
+
+def test_ignored_commands_do_not_occupy_a_gpu(client):
+    """owner.ignore_commands(기본 Xorg)의 프로세스는 보고에서 빠진다. 그것만 있는 GPU 는 빈 GPU 다."""
+    xorg = ProcessReport(
+        pid=1558,
+        type="G",
+        mem_used_mb=4,
+        exec_username="gdm",
+        exec_uid=128,
+        cmdline="/usr/lib/xorg/Xorg vt1 -displayfd 3 -auth /run/user/128/gdm/Xauthority",
+    )
+    train = ProcessReport(
+        pid=4242,
+        pgid=4242,
+        mem_used_mb=20_000,
+        util_sm=80,
+        exec_username="minsu",
+        exec_uid=1002,
+        cmdline="python train.py --epochs 3",
+    )
+
+    def gpu(index: int, procs: list[ProcessReport]) -> GpuReport:
+        used = sum(p.mem_used_mb or 0 for p in procs)
+        return GpuReport(
+            index=index,
+            uuid=f"GPU-x{index}",
+            name="RTX A6000",
+            mem_total_mb=49_140,
+            mem_used_mb=used,
+            processes=procs,
+        )
+
+    report = NodeReport(
+        node=NodeInfo(name="fake01", boot_id="boot-1", agent_version="test", measured_ts=BASE + 5),
+        gpus=[gpu(0, [xorg]), gpu(1, [xorg, train])],
+    )
+    assert post(client, report).status_code == 204
+    gpus = client.get("/api/v1/nodes").json()[0]["gpus"]
+    assert (gpus[0]["occupancy"], gpus[0]["workloads"]) == ("free", [])
+    assert gpus[1]["occupancy"] == "occupied"
+    assert [w["name"] for w in gpus[1]["workloads"]] == ["train.py"]
+    names = [w["name"] for w in client.get("/api/v1/workloads").json()["workloads"]]
+    assert names == ["train.py"], "Xorg 는 작업이 되지 않는다"

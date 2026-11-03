@@ -11,7 +11,7 @@ from __future__ import annotations
 import posixpath
 
 from runboard_common.schemas import ProcessReport
-from runboard_server.core.owner import OwnerDecision
+from runboard_server.core.owner import OwnerDecision, exec_name
 
 
 def workload_key(node_name: str, boot_id: str, proc: ProcessReport) -> str:
@@ -32,7 +32,7 @@ def script_name(cmdline: str) -> str | None:
     for i, token in enumerate(tokens[:-1]):
         if token == "-m":
             return tokens[i + 1]
-    return posixpath.basename(tokens[0]) or None
+    return exec_name(cmdline)
 
 
 def workload_name(proc: ProcessReport, decision: OwnerDecision) -> str:

@@ -3,6 +3,10 @@
 에이전트는 사실만 보낸다. 여기서 사실을 규칙에 넣어 유형(personal / container / shared_service)과
 소유자를 정한다. 판정할 수 없으면 소유자는 None, 근거는 "none" 이다. 추정해서 이름을 붙이지 않는다.
 
+보고에서 빼는 프로세스 (ignored)
+  실행 파일명(명령어 첫 토큰의 파일명)이 owner.ignore_commands(기본 Xorg)에 있는 프로세스는 엔진이 판정 전에
+  보고에서 뺀다. 데스크톱 화면 서버는 GPU 메모리를 몇 MiB 잡지만 작업이 아니므로, 그것만 있는 GPU 는 비어 있다.
+
 유형 판정 순서
   1. 서비스 레지스트리 매칭 (실행 계정, 컨테이너명 패턴, 이미지 패턴) → shared_service
   2. 컨테이너 안에서 실행 → container
@@ -113,6 +117,7 @@ class OwnerResolver:
         self._label_owner = rules.label_owner
         self._label_project = rules.label_project
         self._label_job = rules.label_job
+        self._ignore = frozenset(name for name in rules.ignore_commands if name)
         self._service_by_name = {s.name: s for s in registry.services}
 
     def canonical(self, name: str | None) -> str | None:

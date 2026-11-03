@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import make_url
 
-from runboard_server.config import load_db_url, load_server_config
+from runboard_server.config import ServerConfig, load_db_url, load_server_config
 
 SETTINGS = """\
 [postgres_db]
@@ -119,3 +119,14 @@ def test_example_yaml_loads(tmp_path: Path):
     example = Path(__file__).resolve().parents[2] / "deploy" / "runboard.example.yaml"
     cfg = load_server_config(example, env={"RUNBOARD_SETTINGS": str(_write(tmp_path))})
     assert cfg.server.retention.raw_days == 7 and cfg.server.retention.agg_days == 90
+
+
+def test_owner_ignore_commands(tmp_path: Path):
+    """보고에서 빼는 실행 파일명 목록. 기본은 데스크톱 화면 서버 Xorg 하나, 빈 목록이면 모두 센다."""
+    assert ServerConfig().owner.ignore_commands == ["Xorg"]
+    yaml_file = tmp_path / "runboard.yaml"
+    env = {"RUNBOARD_SETTINGS": str(_write(tmp_path))}
+    yaml_file.write_text("owner:\n  ignore_commands: [Xorg, gnome-shell]\n", encoding="utf-8")
+    assert load_server_config(yaml_file, env=env).owner.ignore_commands == ["Xorg", "gnome-shell"]
+    yaml_file.write_text("owner:\n  ignore_commands: []\n", encoding="utf-8")
+    assert load_server_config(yaml_file, env=env).owner.ignore_commands == []
