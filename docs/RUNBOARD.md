@@ -705,7 +705,7 @@ DB 접속 URL 은 먼저 있는 것을 쓴다.
 
 | TOML 키 | 환경변수 | 명령줄 | 기본값 | 뜻 |
 |---|---|---|---|---|
-| `server_url` | `RUNBOARD_SERVER` | `--server` | 없음 | 서버 주소. `http://<서버>:55400` |
+| `server_url` | `RUNBOARD_SERVER` | `--server` | 없음 | 서버 주소. `http://<서버>:55400`. 설치 스크립트와 에이전트 이미지는 `http://keties.iptime.org:55400` 을 기본으로 넣는다 (9장 'GPU 노드 설치') |
 | `token` | `RUNBOARD_TOKEN` | `--token` | 없음 | 서버의 등록 토큰 또는 이 노드의 토큰 |
 | `node_name` | `RUNBOARD_NODE_NAME` | `--node` | 호스트명 | 노드 이름 (보고의 `name`) |
 | `node_id` | `RUNBOARD_NODE_ID` | `--node-id` | 없음 | 고정 식별자 |
@@ -1371,37 +1371,38 @@ Docker 없이 띄울 때는 개발 환경(10장)처럼 설치하고 `runboard-se
 
 ### GPU 노드 설치
 
-GPU 노드(Ubuntu·Debian 계열)에서 root 로 실행한다. 노드의 Python 은 3.10 이상이고 venv 모듈이 있어야 하며, 의존 패키지는 PyPI 에서 받는다. `start-agent.sh` 는 에이전트와 Docker 소켓 중계를 함께 설치하고, 에이전트 설치는 `install-agent.sh` 를 불러서 한다. 몇 번을 다시 실행해도 된다.
+GPU 노드(Ubuntu·Debian 계열)에서 root 로 실행한다. Python 3.10 이상과 venv 모듈이 없으면 `install-agent.sh` 가 apt 로 설치하고(아래 `install-agent.sh` 의 1단계), 의존 패키지는 PyPI 에서 받는다. 레포는 sparse checkout 으로 에이전트에 필요한 `agent/`, `common/`, `deploy/` 만 받는다 (아래 '레포 받기'). `start-agent.sh` 는 에이전트와 Docker 소켓 중계를 함께 설치하고, 에이전트 설치는 `install-agent.sh` 를 불러서 한다. 몇 번을 다시 실행해도 된다.
 
 ```bash
-git clone <레포 주소> && cd <레포>
-sudo bash deploy/start-agent.sh --dry-run --server http://<서버>:55400 --token <토큰>   # 할 일만 보여 준다
-sudo bash deploy/start-agent.sh --server http://<서버>:55400 --token <토큰> [--node gpu01]
+git clone --filter=blob:none --sparse git@github.com:TAEHOONLIMKOREA/KETI_ServerRunBoard.git && cd KETI_ServerRunBoard
+git sparse-checkout init --cone && git sparse-checkout set agent common deploy
+sudo bash deploy/start-agent.sh --dry-run --token <토큰>   # 할 일만 보여 준다
+sudo bash deploy/start-agent.sh --token <토큰> [--node gpu01]
 sudo bash deploy/start-agent.sh                          # 설치한 노드: 갱신하고 다시 시작
 sudo bash deploy/start-agent.sh --remove-docker-proxy    # 중계를 걷어내고 원래 Docker 소켓으로
 journalctl -u runboard-agent -u runboard-docker-proxy -f
 ```
 
-토큰은 서버의 등록 토큰이나 그 노드의 노드 토큰이다. 등록 토큰을 쓰면 서버를 다시 시작하지 않고 바로 참여하고, 몇 초 뒤 대시보드에 새 `Server_n` 카드가 나타난다.
+토큰은 서버의 등록 토큰이나 그 노드의 노드 토큰이다. 등록 토큰을 쓰면 서버를 다시 시작하지 않고 바로 참여하고, 몇 초 뒤 대시보드에 새 `Server_n` 카드가 나타난다. 서버 주소는 `install-agent.sh` 의 기본값 `http://keties.iptime.org:55400`(서버의 ipTIME DDNS 주소)을 쓰므로, `--server URL` 은 다른 서버로 보낼 때만 준다.
 
 `start-agent.sh` 옵션:
 
 | 옵션 | 뜻 |
 |---|---|
-| `--server URL`, `--token T`, `--node NAME`, `--python PY` | `install-agent.sh` 로 넘긴다 |
+| `--server URL`, `--token T`, `--node NAME`, `--python PY` | `install-agent.sh` 로 넘긴다. `--server` 를 주지 않으면 `install-agent.sh` 의 기본 서버 주소를 쓴다 |
 | `--source DIR`, `--prefix DIR` | `install-agent.sh` 로 넘기고 중계 유닛 설치에도 쓴다 (기본: 스크립트가 있는 레포, `/opt/runboard`) |
 | `--yes` | live-restore 를 켜지 못해 돌던 컨테이너가 멈추더라도 Docker 를 재시작한다 |
-| `--dry-run` | 바꾸는 명령을 실행하지 않고 보여 준다. Docker 재시작 확인에서 멈출 자리는 알리고 끝까지 보여 준다. live-restore 를 실제로 켜지 않으므로 그 확인은 지금 상태로 판단한다. Docker 구성 검사에 걸리거나 첫 설치에 설치 인자가 하나도 없으면 그 자리에서 끝난다. root 가 아니어도 된다 |
+| `--dry-run` | 바꾸는 명령을 실행하지 않고 보여 준다. Docker 재시작 확인에서 멈출 자리는 알리고 끝까지 보여 준다. live-restore 를 실제로 켜지 않으므로 그 확인은 지금 상태로 판단한다. Docker 구성 검사에 걸리거나 첫 설치에 `--token` 이 없으면 그 자리에서 끝난다. root 가 아니어도 된다 |
 | `--no-docker-proxy` | 중계 없이 에이전트만 설치·갱신한다 |
 | `--remove-docker-proxy` | 중계를 걷어내고 Docker 소켓을 원래 자리로 되돌린다 |
 | `-h`, `--help` | 사용법 |
 
 설치 순서:
 
-1. `[1/4]` 에이전트 설치·갱신. `install-agent.sh ... --no-start` 를 부른다. `agent.toml` 이 없는 첫 설치에는 `--server` 와 `--token` 이 있어야 한다.
+1. `[1/4]` 에이전트 설치·갱신. `install-agent.sh ... --no-start` 를 부른다. `agent.toml` 이 없는 첫 설치에는 `--token` 이 있어야 한다. 없으면 사용법을 찍고 `중단: 처음 설치에는 --token 이 필요하다` 로 끝난다.
 2. `[2/4]` 중계 설치. Docker 가 없거나 `--no-docker-proxy` 면 건너뛴다.
    - dockerd 가 `docker.socket` 으로 소켓을 받는 표준 설치(docker-ce 패키지)만 자동으로 바꾼다. `docker.socket` 유닛이 있고, `docker.service` 가 `fd://` 로 소켓을 받고, `/etc/docker/daemon.json` 에 `hosts` 가 없어야 한다. 아니면 `--no-docker-proxy` 를 안내하고 멈춘다.
-   - live-restore 를 켠다. `daemon.json` 에 `"live-restore": true` 를 적고(처음 원본은 `daemon.json.runboard-bak` 으로 남긴다) `systemctl reload docker` 로 설정만 다시 읽게 한다. 켜지지 않으면(swarm 모드 등) 경고한다.
+   - live-restore 를 켠다. `daemon.json` 에 `"live-restore": true` 를 적고(처음 원본은 `daemon.json.runboard-bak` 으로 남긴다) `systemctl reload docker` 로 설정만 다시 읽게 한다. 켜지지 않으면(swarm 모드 등) 경고한다. JSON 은 에이전트 venv 의 Python 으로 고친다 (venv 가 없으면 시스템 `python3`).
    - 진짜 소켓을 아직 옮기지 않았으면 Docker 를 재시작해도 되는지 본다. live-restore 가 켜졌거나 도는 컨테이너가 없으면 진행하고, 아니면 `--yes` 가 없는 한 멈춘다. 여기서 멈춰도 그 앞 단계(에이전트 설치·갱신, live-restore 켜기)는 이미 한 상태다.
    - 소켓·서비스 유닛과 `docker.socket` drop-in 을 깐다.
 3. `[3/4]` Docker 데몬. 진짜 소켓을 옮길 때(처음 한 번)만 `docker.service`·`docker.socket` 을 멈췄다 다시 시작한다. live-restore 가 켜져 있으면 돌던 컨테이너는 멈추지 않는다. 이어서 중계 소켓·서비스를 켜고 다시 시작한 뒤 확인한다: 중계를 거친 `docker version`, 두 소켓의 소유자·권한, 그리고 로컬 이미지가 있으면 `runboard.owner=spoof-check` 를 붙인 시험 컨테이너를 만들어 `runboard.launcher`·`runboard.owner` 값을 보여 준 뒤 지운다.
@@ -1415,20 +1416,24 @@ journalctl -u runboard-agent -u runboard-docker-proxy -f
 
 | 옵션 | 기본값 | 뜻 |
 |---|---|---|
-| `--server URL` | — | 서버 주소 |
-| `--token T` | — | 등록 토큰 또는 노드 토큰 |
+| `--server URL` | `http://keties.iptime.org:55400` | 서버 주소. 기본값은 서버의 ipTIME DDNS 주소다 |
+| `--token T` | — | 등록 토큰 또는 노드 토큰. 첫 설치에 없으면 사용법을 찍고 종료 코드 2 로 끝난다 |
 | `--node NAME` | `hostname -s` | 노드 이름 |
 | `--source DIR` | 스크립트가 있는 레포 | `common/`·`agent/` 가 있는 레포 경로 |
 | `--prefix DIR` | `/opt/runboard` | venv 를 만들 곳 (`<prefix>/venv`) |
-| `--python PY` | `python3` | venv 를 만들 Python |
+| `--python PY` | `python3` | venv 를 만들 Python. 3.10 이상이어야 한다. 없으면 apt 로 설치한다 (1단계) |
 | `--no-start` | — | 설치·갱신과 `enable` 만 하고 시작하지도 다시 시작하지도 않는다 (`start-agent.sh` 가 이 옵션으로 부르고 `[4/4]` 에서 에이전트를 다시 시작한다) |
 
-1. 시스템 계정 `runboard`(홈 없음, 로그인 불가)를 만든다. `docker` 그룹이 있으면 넣는다. 에이전트보다 Docker 를 늦게 설치했다면 `start-agent.sh` 를 다시 실행해 그룹에 넣고 에이전트를 다시 시작한다.
-2. `<prefix>/venv` 를 만들고 `common`·`agent` 를 설치·갱신한다.
-3. `/etc/runboard/agent.toml` 이 없을 때만 만든다 (root:runboard 0640). `server_url`, `token`, `node_name`, `node_id`(새 UUID), `active_interval = 1.0`, `idle_interval = 30.0`, `idle_grace = 5.0`, `timeout = 5.0`, `collector = "nvml"` 을 적는다. 파일이 있으면 그대로 두므로, 다시 실행하며 준 `--server`·`--token`·`--node` 는 적용되지 않는다. 바꾸려면 파일을 고치고 `sudo systemctl restart runboard-agent` 를 한다.
-4. 유닛을 깔고 `systemctl enable` 한 뒤 `systemctl restart` 로 에이전트를 다시 시작한다. 멈춰 있던 에이전트는 이때 시작하고, 돌던 에이전트는 갱신한 코드로 다시 뜬다. `--no-start` 면 `enable` 까지만 한다.
+1. Python. `--python`(기본 `python3`)이 3.10 이상이고 venv 모듈(`ensurepip`)이 있는지 본다. 모자라면 `apt-get update` 뒤 `apt-get install` 로 채운다. `apt-get update` 가 일부 실패해도(죽은 PPA 등) 있는 목록으로 계속하고, apt-get 이 없는 배포판이면 `중단:` 으로 끝난다.
+   - 인터프리터가 없으면 같은 이름의 패키지(`python3`, `python3.11` …)를 설치한다. 경로로 지정했으면 설치하지 않고 멈춘다.
+   - `python3` 가 3.10 보다 낮으면 저장소에서 설치할 수 있는 `python3.12`·`python3.11`·`python3.10` 중 첫 것을 `-venv` 와 함께 설치하고 그것으로 venv 를 만든다. 하나도 없으면(Ubuntu 20.04 등) deadsnakes PPA(`add-apt-repository ppa:deadsnakes/ppa`) 안내와 함께 멈춘다. `--python` 으로 지정한 것이 낮으면 설치하지 않고 멈춘다.
+   - venv 모듈이 없으면 `python3.X-venv` 를 설치한다.
+2. 시스템 계정 `runboard`(홈 없음, 로그인 불가)를 만든다. `docker` 그룹이 있으면 넣는다. 에이전트보다 Docker 를 늦게 설치했다면 `start-agent.sh` 를 다시 실행해 그룹에 넣고 에이전트를 다시 시작한다.
+3. `<prefix>/venv` 를 만들고 `common`·`agent` 를 설치·갱신한다. 전에 3.10 보다 낮은 Python 으로 만든 venv 가 있으면 지우고 다시 만든다.
+4. `/etc/runboard/agent.toml` 이 없을 때만 만든다 (root:runboard 0640). `server_url`, `token`, `node_name`, `node_id`(새 UUID), `active_interval = 1.0`, `idle_interval = 30.0`, `idle_grace = 5.0`, `timeout = 5.0`, `collector = "nvml"` 을 적는다. 파일이 있으면 그대로 두므로, 다시 실행하며 준 `--server`·`--token`·`--node` 는 적용되지 않는다. 바꾸려면 파일을 고치고 `sudo systemctl restart runboard-agent` 를 한다.
+5. 유닛을 깔고 `systemctl enable` 한 뒤 `systemctl restart` 로 에이전트를 다시 시작한다. 멈춰 있던 에이전트는 이때 시작하고, 돌던 에이전트는 갱신한 코드로 다시 뜬다. `--no-start` 면 `enable` 까지만 한다.
 
-`nvidia-smi` 가 없으면 경고만 한다. NVML 을 초기화하지 못하는 노드는 노드 정보만 보고한다 (2장 '실패 처리' 의 `nvml_init`). `--server` 를 주었으면 끝에 `확인: curl -s <서버>/api/v1/nodes | grep -o '"hostname":"<노드>"'` 를 찍는다. 노드가 등록됐으면 이 명령은 `"hostname":"<노드>"` 를 찍는다. 대시보드나 `runboard-server nodes list` 로도 확인한다.
+`nvidia-smi` 가 없으면 경고만 한다. NVML 을 초기화하지 못하는 노드는 노드 정보만 보고한다 (2장 '실패 처리' 의 `nvml_init`). 처음 설치(`agent.toml` 을 새로 쓴 때)면 끝에 `확인: curl -s <서버>/api/v1/nodes | grep -o '"hostname":"<노드>"'` 를 찍는다. 다시 실행할 때는 보고하는 주소가 `agent.toml` 의 것이라 찍지 않는다. 노드가 등록됐으면 이 명령은 `"hostname":"<노드>"` 를 찍는다. 대시보드나 `runboard-server nodes list` 로도 확인한다.
 
 Docker 소켓 중계도 같은 venv 의 코드로 도는데 이 스크립트는 중계를 다시 시작하지 않는다. 그래서 중계가 돌고 있으면 끝에 `참고: Docker 소켓 중계는 다시 시작하지 않아 갱신 전 코드로 돈다. 중계도 갱신하려면: sudo bash <레포>/deploy/start-agent.sh` 를 찍는다. `--prefix` 가 `/opt/runboard` 가 아니면 명령 끝에 `--prefix <경로>` 가 붙는다. `--no-start` 면 확인 줄도 이 안내도 찍지 않는다.
 
@@ -1445,6 +1450,20 @@ Docker 소켓 중계도 같은 venv 의 코드로 도는데 이 스크립트는 
 
 에이전트 서비스는 `runboard` 계정의 그룹을 따른다. 설치 스크립트가 이 계정을 `docker` 그룹에 넣어 에이전트가 컨테이너 이름·이미지·라벨을 조회하게 한다. 에이전트는 조회만 하지만 `docker` 그룹 권한 자체는 Docker API 전체(사실상 root)다.
 
+#### 레포 받기
+
+노드에는 에이전트 설치에 필요한 `agent/`(패키지와 systemd 유닛), `common/`, `deploy/`(설치 스크립트)만 있으면 된다. 레포 전체를 `git clone` 해도 되지만, 서버·웹·문서를 노드에 두지 않으려면 sparse checkout 으로 받는다 (git 2.25 이상).
+
+```bash
+git clone --filter=blob:none --sparse git@github.com:TAEHOONLIMKOREA/KETI_ServerRunBoard.git
+cd KETI_ServerRunBoard
+git sparse-checkout init --cone && git sparse-checkout set agent common deploy
+```
+
+- `--sparse` 는 루트 파일만 체크아웃한 채로 clone 하고, `sparse-checkout set` 이 세 폴더를 더한다. 작업 트리에는 세 폴더와 루트 파일(README 등)만 생긴다. `--filter=blob:none` 은 체크아웃하지 않는 파일의 내용은 내려받지도 않게 한다 (GitHub 가 지원한다. 레포 전체가 작아서 빼도 된다).
+- 같은 `master` 브랜치를 보므로 업그레이드는 `git pull` 이고, 설치 스크립트는 레포 전체를 받았을 때와 똑같이 동작한다 (`--source` 기본값이 레포 루트).
+- 레포는 비공개라 노드에 읽기 권한이 필요하다. 노드마다 읽기 전용 deploy key 를 쓰는 것이 간단하다: 노드에서 `ssh-keygen -t ed25519` 로 키를 만들고 공개키를 GitHub 레포의 Settings → Deploy keys 에 등록한다 (Allow write access 는 끈다. deploy key 하나는 레포 하나에만 등록할 수 있으므로 노드마다 만든다). 설치할 때만 접속하는 사람의 키를 쓰려면 `ssh -A <노드>` 로 접속해 clone 한다. 이때는 뒤의 `git pull` 도 그렇게 접속해서 해야 한다.
+
 #### 컨테이너로 실행
 
 `agent/Dockerfile` 로 에이전트 이미지를 만들 수 있다. 빌드 컨텍스트는 레포 루트다.
@@ -1454,11 +1473,12 @@ docker build -f agent/Dockerfile -t runboard-agent .
 docker run -d --name runboard-agent --restart unless-stopped \
   --gpus all --pid=host \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  -e RUNBOARD_SERVER=http://<서버>:55400 -e RUNBOARD_TOKEN=<토큰> \
+  -e RUNBOARD_TOKEN=<토큰> \
   -e RUNBOARD_NODE_NAME=$(hostname) -e RUNBOARD_NODE_ID=$(cat /etc/machine-id) \
   runboard-agent
 ```
 
+- 이미지에 `RUNBOARD_SERVER=http://keties.iptime.org:55400` 이 들어 있다. 다른 서버면 `-e RUNBOARD_SERVER=...` 로 바꾼다.
 - `--pid=host` 가 없으면 NVML 의 PID 를 `/proc` 에서 찾지 못하고 다른 컨테이너의 프로세스가 보이지 않는다.
 - 컨테이너의 호스트명은 컨테이너 ID 라서 `RUNBOARD_NODE_NAME` 을 넘긴다. `RUNBOARD_NODE_ID` 를 주면 컨테이너를 다시 만들어도 같은 노드로 이어진다.
 - 실행 계정 이름은 컨테이너 안의 계정 목록으로 찾으므로 호스트 계정은 uid 숫자 문자열로 보고된다. 그래서 계정 이름으로 하는 소유자 인식은 uid 계정 매핑으로 대신하고, 공용 서비스는 실행 계정 칸에 uid 숫자(예: `998`)를 적거나 컨테이너명·이미지 패턴으로 매칭한다. 보고되는 IP 는 컨테이너 네트워크의 주소다.
@@ -1478,7 +1498,7 @@ docker compose up -d --build
 - `runboard.yaml` 이나 `settings.ini` 만 고쳤으면 다시 빌드하지 않고 `docker compose restart server` 로 충분하다. 두 파일은 시작할 때만 읽는다.
 - 재시작 동안의 동작은 3장 '재시작과 복원' 에 있다. 꺼져 있던 동안 밀린 5분 집계는 시작할 때 채운다.
 
-에이전트 (노드마다):
+에이전트 (노드마다). sparse checkout 으로 받은 레포도 같다:
 
 ```bash
 cd <레포>

@@ -98,16 +98,21 @@ docker compose up -d --build               # http://<서버>:55400 (HTTP)
 
 ### GPU 노드 (에이전트)
 
-`runboard.yaml` 의 `auth.shared_token`(등록 토큰)으로 보고하는 노드는 서버 재시작 없이 바로 참여하고, 처음 보고한 순서대로 `Server_1`, `Server_2` … 화면 이름을 받는다. 노드별로 다른 토큰을 쓰려면 `auth.node_tokens` 에 호스트명이나 `node_id` → 토큰(평문 또는 `sha256:<hex>`)을 넣는다. 노드에서:
+`runboard.yaml` 의 `auth.shared_token`(등록 토큰)으로 보고하는 노드는 서버 재시작 없이 바로 참여하고, 처음 보고한 순서대로 `Server_1`, `Server_2` … 화면 이름을 받는다. 노드별로 다른 토큰을 쓰려면 `auth.node_tokens` 에 호스트명이나 `node_id` → 토큰(평문 또는 `sha256:<hex>`)을 넣는다. 노드에서 (Ubuntu·Debian 계열. PyPI 접속과 레포 읽기 권한이 필요하다. Python 3.10 이상과 venv 모듈은 없으면 스크립트가 apt 로 설치한다):
 
 ```bash
-git clone <레포 주소> && cd <레포>
-sudo bash deploy/start-agent.sh --dry-run --server http://<서버 주소>:55400 --token <토큰>   # 할 일만 보기
-sudo bash deploy/start-agent.sh --server http://<서버 주소>:55400 --token <토큰>
+git clone --filter=blob:none --sparse git@github.com:TAEHOONLIMKOREA/KETI_ServerRunBoard.git && cd KETI_ServerRunBoard
+git sparse-checkout init --cone && git sparse-checkout set agent common deploy   # 에이전트에 필요한 폴더만 받는다
+sudo bash deploy/start-agent.sh --dry-run --token <토큰>   # 할 일만 보기
+sudo bash deploy/start-agent.sh --token <토큰>
 journalctl -u runboard-agent -u runboard-docker-proxy -f
 ```
 
-- `start-agent.sh` 는 몇 번을 다시 돌려도 된다. 설치한 노드에서 인자 없이 돌리면 갱신하고 다시 시작한다. 중계가 있는 노드는 이것으로 갱신한다 (`install-agent.sh` 는 에이전트만 다시 시작한다).
+- sparse checkout 이라 노드에는 `agent/`, `common/`, `deploy/` 와 루트 파일만 생긴다. 서버·웹·문서는 받지 않는다 (git 2.25 이상). 그냥 `git clone` 해도 스크립트는 같다.
+- 레포는 비공개라 노드에 읽기 권한이 필요하다. 노드마다 읽기 전용 deploy key 를 등록하거나(노드에서 `ssh-keygen -t ed25519` → 공개키를 GitHub 레포 Settings → Deploy keys 에), 설치할 때만 `ssh -A` 로 접속해 자기 키를 쓴다.
+- 서버 주소는 `http://keties.iptime.org:55400` 이 기본이라 `--server` 를 주지 않아도 된다. 다른 서버로 보내려면 `--server URL` 을 준다. 설치한 뒤에 바꾸려면 `/etc/runboard/agent.toml` 의 `server_url` 을 고치고 `sudo systemctl restart runboard-agent` 한다 (다시 실행하며 준 `--server` 는 적용되지 않는다).
+- `start-agent.sh` 는 몇 번을 다시 돌려도 된다. 설치한 노드에서 인자 없이 돌리면 갱신하고 다시 시작한다. 중계가 있는 노드는 이것으로 갱신한다 (`install-agent.sh` 는 에이전트만 다시 시작한다). 업그레이드는 `git pull` 뒤 인자 없이 돌린다.
+- Python 3.10 이상과 venv 모듈(`python3.X-venv`)이 없으면 `install-agent.sh` 가 apt 로 설치한다. `python3` 가 3.10 보다 낮고 저장소에 `python3.12`·`3.11`·`3.10` 도 없으면(Ubuntu 20.04 등) 멈추고 안내를 찍는다. deadsnakes PPA 를 추가하고 다시 돌리거나, 직접 설치한 Python 을 `--python` 으로 지정한다.
 - 에이전트는 전용 계정 `runboard` 로 `/opt/runboard/venv` 에 설치되고 systemd 서비스로 돈다. `/etc/runboard/agent.toml` 에 고정 `node_id`(UUID)를 적어 두므로 재부팅하거나 호스트명이 바뀌어도 같은 노드로 이어진다.
 - Docker 가 있으면 **Docker 소켓 중계**도 설치한다. Docker 는 누가 컨테이너를 만들었는지 남기지 않으므로, 중계가 원래 소켓 자리(`/run/docker.sock`)를 맡고 새 컨테이너에 만든 계정을 `runboard.owner`·`runboard.launcher` 라벨로 붙인다. 사용자는 Docker 를 그대로 쓴다. 진짜 소켓을 옮길 때 Docker 데몬을 한 번 재시작하는데, 먼저 live-restore 를 켜므로 돌던 컨테이너는 멈추지 않는다 (켤 수 없는데 돌던 컨테이너가 있으면 멈추고, 학습이 없는 시간에 `--yes` 로 다시 한다).
 - 중계를 걷어내려면 `--remove-docker-proxy`, 중계 없이 에이전트만 설치하려면 `--no-docker-proxy` (또는 `install-agent.sh`).
