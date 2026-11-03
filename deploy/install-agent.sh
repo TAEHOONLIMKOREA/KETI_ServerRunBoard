@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # RunBoard 에이전트 설치 (Ubuntu/Debian 계열, root 로 실행).
 #
-#   sudo bash deploy/install-agent.sh --server http://<서버 주소>:55400 --token <NODE_TOKEN> [--node gpu01]
+#   sudo bash deploy/install-agent.sh --token <NODE_TOKEN> [--node gpu01]
 #
 # 하는 일: 전용 계정 runboard 생성 → /opt/runboard/venv 에 에이전트 설치 → /etc/runboard/agent.toml 작성
 #          → systemd 유닛 등록·시작. 몇 초 뒤 대시보드에 노드가 나타난다.
@@ -12,7 +12,7 @@
 #         --no-start  설치·갱신만 하고 시작(다시 시작)하지 않는다
 set -euo pipefail
 
-SERVER=""
+SERVER="http://keties.iptime.org:55400"   # RunBoard 서버의 ipTIME DDNS 주소. 처음 설치할 때 agent.toml 에 적힌다
 TOKEN=""
 NODE="$(hostname -s)"
 PREFIX="/opt/runboard"
@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ( -z "$SERVER" || -z "$TOKEN" ) && ! -f /etc/runboard/agent.toml ]]; then
+if [[ -z "$TOKEN" && ! -f /etc/runboard/agent.toml ]]; then
   usage
   exit 2
 fi
@@ -73,9 +73,11 @@ fi
 
 echo "[3/4] 설정: /etc/runboard/agent.toml"
 mkdir -p /etc/runboard
+WROTE_CONFIG=0
 if [[ -f /etc/runboard/agent.toml ]]; then
   echo "      기존 설정을 유지합니다 (바꾸려면 파일을 수정하고 systemctl restart runboard-agent)"
 else
+  WROTE_CONFIG=1
   cat > /etc/runboard/agent.toml <<EOF
 # RunBoard 에이전트 설정. 우선순위: 이 파일 < 환경변수(RUNBOARD_*) < CLI 인자
 server_url = "$SERVER"
@@ -107,7 +109,8 @@ sleep 2
 systemctl --no-pager --lines=5 status runboard-agent || true
 echo
 echo "완료. 로그: journalctl -u runboard-agent -f"
-if [[ -n "$SERVER" ]]; then
+# 다시 실행할 때는 agent.toml 의 server_url 로 보고하므로(--server 는 적용되지 않는다) 처음 설치에만 찍는다
+if (( WROTE_CONFIG )); then
   echo "확인: curl -s $SERVER/api/v1/nodes | grep -o '\"hostname\":\"$NODE\"'"
 fi
 # 중계도 이 venv 의 코드로 돈다. 유닛을 새로 깔고 다시 시작하는 일은 start-agent.sh 가 한다 (옛 유닛은 멈출 때 오래 걸릴 수 있다)

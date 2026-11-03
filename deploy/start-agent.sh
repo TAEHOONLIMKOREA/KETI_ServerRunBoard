@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # RunBoard 에이전트 시작 (GPU 노드, Ubuntu/Debian, root 로 실행). 몇 번을 다시 돌려도 된다.
 #
-#   sudo bash deploy/start-agent.sh --server http://<서버 주소>:55400 --token <등록 토큰> [--node gpu01]
+#   sudo bash deploy/start-agent.sh --token <등록 토큰> [--node gpu01]   # 서버는 기본 http://keties.iptime.org:55400
 #   sudo bash deploy/start-agent.sh                         # 이미 설치한 노드: 갱신하고 다시 시작
 #   sudo bash deploy/start-agent.sh --dry-run               # 무엇을 할지 보여 주기만 한다
 #   sudo bash deploy/start-agent.sh --remove-docker-proxy   # 중계를 걷어내고 원래 Docker 소켓으로 되돌린다
@@ -13,7 +13,8 @@
 #          먼저 live-restore 를 켜서 돌던 컨테이너는 멈추지 않는다. 켤 수 없고 돌던 컨테이너가 있으면 멈춘다
 #       4) 중계·에이전트 시작과 확인
 # 옵션  --yes              live-restore 를 켜지 못해 돌던 컨테이너가 멈추더라도 진행
-#       --no-docker-proxy  중계 없이 에이전트만   (--node --source --prefix --python 은 install-agent.sh 로 넘긴다)
+#       --no-docker-proxy  중계 없이 에이전트만
+#       --server URL       다른 서버로 보낼 때   (--node --source --prefix --python 과 함께 install-agent.sh 로 넘긴다)
 set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,6 +29,7 @@ YES=0
 DRY=0
 USE_PROXY=1
 REMOVE=0
+HAS_TOKEN=0
 INSTALL_ARGS=()
 
 usage() {
@@ -42,7 +44,8 @@ while [[ $# -gt 0 ]]; do
     --remove-docker-proxy) REMOVE=1; shift ;;
     --source) SOURCE="$2"; INSTALL_ARGS+=("$1" "$2"); shift 2 ;;
     --prefix) PREFIX="$2"; INSTALL_ARGS+=("$1" "$2"); shift 2 ;;
-    --server|--token|--node|--python) INSTALL_ARGS+=("$1" "$2"); shift 2 ;;
+    --token) HAS_TOKEN=1; INSTALL_ARGS+=("$1" "$2"); shift 2 ;;
+    --server|--node|--python) INSTALL_ARGS+=("$1" "$2"); shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "알 수 없는 옵션: $1" >&2; usage; exit 2 ;;
   esac
@@ -265,9 +268,9 @@ if (( REMOVE )); then
 fi
 
 echo "[1/4] 에이전트 설치·갱신"
-if [[ ${#INSTALL_ARGS[@]} -eq 0 && ! -f /etc/runboard/agent.toml ]]; then
+if (( ! HAS_TOKEN )) && [[ ! -f /etc/runboard/agent.toml ]]; then
   usage
-  die "처음 설치에는 --server 와 --token 이 필요하다"
+  die "처음 설치에는 --token 이 필요하다"
 fi
 if (( DRY )); then
   echo "      (dry-run) bash $HERE/install-agent.sh $(masked_args) --no-start"
