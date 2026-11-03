@@ -971,13 +971,14 @@ GPU 이력:
 
 | 주소 | 화면 | 들어가는 길 |
 |---|---|---|
-| `/` | 대시보드: 범례, 노드 카드, GPU 행 | 헤더의 `KETI Server RunBoard` |
+| `/` | 대시보드: 범례, 노드 카드, GPU 행 | 헤더의 `KETI Server RunBoard` 나 `대시보드` 버튼 |
 | `/gpus` | 전체 GPU 표 | 대시보드 범례 줄의 `표로 보기`, 노드 상세 GPU 제목 줄의 `전체 GPU 표` |
 | `/nodes/<식별자>` | 노드 상세: 노드 정보, GPU 표, 작업 표, 이력 차트 | 카드·표·작업 상세의 노드 이름, 관리 서버(노드) 탭의 화면 이름 |
 | `/users` | 사용자 목록 | 화면 안에 링크가 없다. 주소를 직접 연다 |
 | `/users/<사용자 이름>` | 사용자 상세. `/users/_unknown` 은 소유자 미확인 작업 묶음 | GPU 행·작업 표의 소유자, 사용자 목록, 관리 사용자 탭 |
 | `/workloads/<작업 ID>` | 작업 상세와 세션 표 | GPU 행·작업 표의 작업 이름 |
-| `/admin` | 관리 | 헤더의 `관리` |
+| `/manual` | 메뉴얼: README.md 의 내용 | 헤더의 `메뉴얼` 버튼 |
+| `/admin` | 관리 | 헤더의 `관리` 버튼 |
 
 이 밖의 주소는 `페이지가 없습니다.` 를 보인다. 작업만 모아 보는 목록 화면은 없고, 작업 표는 노드 상세와 사용자 상세에 있다.
 
@@ -992,7 +993,9 @@ GPU 이력:
 
 ### 헤더와 공지 배너
 
-모든 화면 맨 위에 헤더 한 줄이 있다: 제목 `KETI Server RunBoard`(대시보드로 간다), 검색창, `연결된 노드 N / M`, `관리` 링크. N 은 정상·지연 노드 수, M 은 비활성화까지 포함한 노드 수다.
+모든 화면 맨 위에 헤더 한 줄이 있다: 제목 `KETI Server RunBoard`(대시보드로 간다), 메뉴 버튼 `대시보드`·`메뉴얼`·`관리`, 검색창, `연결된 노드 N / M`. N 은 정상·지연 노드 수, M 은 비활성화까지 포함한 노드 수다.
+
+메뉴 버튼은 지금 화면이 속한 것이 accent 색으로 찬다. `메뉴얼` 은 `/manual`, `관리` 는 `/admin` 이고, 그 밖의 모든 화면(대시보드, 전체 GPU 표, 노드·사용자·작업 상세, 없는 주소)에서는 `대시보드` 가 켜져 있다. 버튼은 검색어·정렬 같은 쿼리 매개변수를 넘기지 않는다.
 
 검색:
 
@@ -1152,6 +1155,16 @@ GPU 마다 작은 차트가 하나씩 있고 범례는 묶음 위에 한 번 있
 
 점유 시간은 연산 시간이 아니다. 작업 상세는 지금 열린 작업만 보여 준다. 세션이 모두 끝나 작업이 닫히면 그 주소는 `서버에서 데이터를 가져오지 못했습니다: 404 Not Found` 를 보인다. 닫힌 뒤에 그 주소를 새로 열면 `불러오는 중…` 과 이 오류 상자가 번갈아 보인다 (11장 '판정과 표시').
 
+### 메뉴얼
+
+`/manual` 은 레포 루트의 `README.md` 를 그대로 보여 준다. 빌드 때 Vite 가 README 본문을 문자열로 넣고(`?raw`), 화면은 markdown 변환기 `marked` 로 HTML 을 만들어 그대로 넣는다 (`web/src/pages/Manual.tsx`). 그래서 README 를 고치면 웹을 다시 빌드해야 화면에 반영된다. 서버 이미지의 웹 빌드 단계는 `README.md` 와 `docs/img/` 를 함께 복사한다 (`server/Dockerfile`).
+
+- README 의 그림 `docs/img/<파일>` 은 Vite 가 해시 이름의 자산(`/assets/`)으로 묶고, 화면이 그 주소로 바꿔 넣는다. `docs/img/` 에 없는 그림은 경로가 그대로 남아 깨진 그림으로 보인다.
+- `README_DEV.md` 처럼 레포 안의 `.md` 로 가는 링크는 GitHub 의 그 파일(`master`)로 간다. 그 밖의 링크는 그대로다.
+- README 는 레포에 든 글이라 변환한 HTML 을 걸러 내지 않고 넣는다. README 에 적은 HTML 태그도 그대로 들어간다.
+- 메뉴얼 묶음(README 본문과 `marked`)은 따로 나뉘어(`Manual-*.js`) 메뉴얼을 처음 열 때 받는다. 대시보드 첫 로드에는 들어가지 않는다.
+- 글 폭은 1000 px 까지이고 그림은 그 폭에 맞춰 줄어든다. 다른 화면처럼 다크 모드를 따른다.
+
 ### 관리
 
 탭은 `사용자`, `공용 서비스`, `서버(노드)`, `공지` 이고 주소의 `?tab=` 에 둔다. 로그인이 없어 주소를 아는 누구나 고칠 수 있다. 필드 규칙은 3장 '등록 정보' 와 '공지' 에 있다.
@@ -1194,7 +1207,7 @@ GPU 마다 작은 차트가 하나씩 있고 범례는 묶음 위에 한 번 있
 | GPU 행 작업 칸 260 px 이하 | 공용 서비스 줄의 경과를 뺀다 |
 | 이력 차트 가로축 280 px 이하 (차트 상자가 약 336 px 이하. 넓은 창에서 차트가 한 줄에 넷씩 놓이면 늘 그렇다) | 7일 차트의 날짜 글자를 하루 걸러 적는다 |
 
-헤더는 폭이 모자라면 여러 줄로 접힌다. 전체 GPU 표와 관리 화면의 표는 화면보다 넓으면 표만 옆으로 스크롤한다.
+헤더는 폭이 모자라면 여러 줄로 접힌다. 창 700 px 안팎에서는 메뉴 버튼이 제목 옆에 남고 검색창과 노드 수가 다음 줄로 내려간다. 전체 GPU 표와 관리 화면의 표는 화면보다 넓으면 표만 옆으로 스크롤한다.
 
 ### 아이콘과 홈 화면
 
@@ -1590,9 +1603,9 @@ journalctl -u runboard-agent -n 50 --no-pager
 | `common/` | `runboard-common`: 보고 스키마 (`runboard_common/schemas.py`) |
 | `agent/` | `runboard-agent`: CLI(`main.py`), 설정(`config.py`), 보고 주기(`cadence.py`), 수집기(`collector/nvml.py`, `collector/fake.py`), `/proc`·Docker 보강(`enrich.py`), 비밀값 가리기(`masking.py`), 전송(`reporter.py`), Docker 소켓 중계(`dockerproxy.py`). `systemd/` 유닛과 `Dockerfile` |
 | `server/` | `runboard-server`: 진입점(`main.py`), `nodes` 명령(`cli.py`), 설정(`config.py`), API(`api/ingest.py`·`query.py`·`admin.py`·`auth.py`), 판정과 추적(`core/engine.py`·`owner.py`·`sessions.py`·`workloads.py`·`detector.py`·`history.py`·`state.py`), DB(`db/models.py`·`repo.py`), 등록 정보(`registry.py`), 공지(`notices.py`), 응답 모델(`views.py`). 웹을 포함하는 `Dockerfile` |
-| `web/` | React 18 + Vite + TypeScript + TanStack Query. 화면(`src/pages`), 부품(`src/components`), 아이콘·manifest(`public`) |
+| `web/` | React 18 + Vite + TypeScript + TanStack Query. 화면(`src/pages`), 부품(`src/components`), 아이콘·manifest(`public`). 메뉴얼 화면은 `marked` 로 README.md 를 그린다 |
 | `deploy/` | `docker-compose.yml`, `runboard.example.yaml`, `install-agent.sh`, `start-agent.sh` |
-| `README.md`, `README_DEV.md` | 개요·사용 방법·주의사항, 그리고 이 문서 |
+| `README.md`, `README_DEV.md` | 개요·사용 방법·주의사항(웹의 메뉴얼 화면이 그대로 보여 준다), 그리고 이 문서 |
 | `docs/` | 그림(`img/`)과 README 안내 그림의 번호 표시 원본(`annotations/`) |
 | `pyproject.toml` | 루트는 패키지가 아니다. ruff·pytest 설정만 둔다 |
 | `requirements-dev.txt` | 세 패키지를 개발용으로 설치한다 |
@@ -1673,6 +1686,8 @@ npm run typecheck   # tsc -b
 
 `npm run dev` 는 로컬 서버가 8000 포트에 떠 있어야 데이터가 나온다. 빌드 결과는 서버가 `server.web_dist`(또는 `RUNBOARD_WEB_DIST`)에서 내보낸다 (6장 '웹 파일과 그 밖의 경로').
 
+메뉴얼 화면은 레포 루트의 `README.md` 와 `docs/img/*` 를 빌드 입력으로 읽는다 (7장 '메뉴얼'). `web/` 만 따로 떼어 빌드하면 그 둘이 없어 실패하므로 레포 전체를 둔 채 빌드한다. dev 서버는 `server.fs.allow` 로 레포 루트까지 열어 둔다 (`vite.config.ts`).
+
 ### 아이콘 파일
 
 `web/public/` 의 파일은 Vite 가 빌드 때 `dist` 루트로 그대로 복사한다.
@@ -1689,7 +1704,7 @@ npm run typecheck   # tsc -b
 
 ### 스크린샷
 
-`docs/img/` 의 그림은 가짜 에이전트 세 대(`fake01` 8장, `fake02` 6장, `fake03` 4장)와 예시 등록 정보로 띄운 화면이다. 작업 경과가 몇 시간·며칠로 보이도록 가짜 수집기의 기준 시각(`runboard_agent.collector.fake._EPOCH`)을 찍는 날 근처로 바꾼 에이전트를 썼고, 노드 상세의 이력 차트는 `fake01` 의 이틀 치 원본 샘플을 DB 에 직접 넣어 채웠다. 이 보조 스크립트는 레포에 없다. 그래서 아래 명령으로 다시 찍으면 경과가 1년 넘게 나오고(2장 '가짜 수집기'), 이력 차트는 서버를 띄운 뒤 쌓인 만큼만 그려진다. 같은 크기의 대시보드 그림은 Chrome headless 로 이렇게 찍는다.
+`docs/img/` 의 그림은 가짜 에이전트 세 대(`fake01` 8장, `fake02` 6장, `fake03` 4장)와 예시 등록 정보로 띄운 화면이다. 작업 경과가 몇 시간·며칠로 보이도록 가짜 수집기의 기준 시각(`runboard_agent.collector.fake._EPOCH`)을 찍는 시각의 14시간 전으로 바꾼 에이전트를 썼고, 노드 상세의 이력 차트는 `fake01` 의 이틀 치 5분 집계 행(`gpu_samples_5m`)을 시나리오에 맞춘 파형으로 DB 에 직접 넣어 채웠다. 이 보조 스크립트는 레포에 없다. 그래서 아래 명령으로 다시 찍으면 경과가 1년 넘게 나오고(2장 '가짜 수집기'), 이력 차트는 서버를 띄운 뒤 쌓인 만큼만 그려진다. 같은 크기의 대시보드 그림은 Chrome headless 로 이렇게 찍는다.
 
 ```bash
 google-chrome --headless=new --hide-scrollbars --force-device-scale-factor=1 --blink-settings=preferredColorScheme=1 --window-size=1320,928 --virtual-time-budget=5000 --screenshot=docs/img/dashboard.png http://localhost:8000/
@@ -1698,8 +1713,8 @@ google-chrome --headless=new --hide-scrollbars --force-device-scale-factor=1 --b
 - `--virtual-time-budget` 이 없으면 데이터를 받기 전의 `불러오는 중…` 이 찍힌다.
 - Chrome 120 의 새 headless 모드는 그림 높이가 `--window-size` 의 높이보다 77 px 작다 (1320,928 → 1320×851). 폭은 그대로다.
 - `--blink-settings=preferredColorScheme=1` 은 라이트 테마로 찍는다.
-- 노드 상세 그림(`node-detail.png`)은 차트가 다 그려진 뒤 페이지 전체를 찍은 것이다 (`/nodes/fake01?range=24h`). 이력 차트를 채우려면 원본 샘플이 쌓여 있어야 한다.
-- `gpus.png` 는 `/gpus` 를 창 높이 900 으로, `admin.png` 는 `/admin`(사용자 탭)을 창 높이 928 로 찍은 것이다. 이 둘은 가짜 수집기의 기준 시각(`_EPOCH`)을 지금의 4시간 전으로 바꾼 에이전트로 찍어 경과가 몇 시간·며칠로 보인다.
+- 노드 상세 그림(`node-detail.png`)은 `/nodes/fake01?range=24h` 를 창 높이 1443(그림 1366)으로 찍어 페이지 전체가 들어간 것이다. 이력 차트를 채우려면 5분 집계 행이 쌓여 있어야 한다.
+- `gpus.png` 는 `/gpus` 를 창 높이 900 으로, `admin.png` 는 `/admin`(사용자 탭)을 창 높이 928 로 찍은 것이다.
 - README 의 `dashboard-guide.png` 와 `admin-guide.png` 는 `dashboard.png`·`admin.png` 위에 번호 상자를 얹은 것이다. `docs/annotations/` 의 HTML 이 바탕 그림을 `<img>` 로 넣고 그 위에 상자와 번호를 절대 좌표로 놓는다. 바탕 그림을 다시 찍었으면 좌표를 맞춘 뒤 레포 루트에서 같은 크기로 찍는다.
 
 ```bash
